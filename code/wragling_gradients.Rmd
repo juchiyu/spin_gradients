@@ -1,0 +1,217 @@
+---
+title: "Wrangle SPINS gradients"
+output: html_notebook
+---
+
+Grabbing SPINS gradients
+
+```{r}
+library(tidyverse)
+```
+
+## Read in the SPINS big table
+
+
+```{r}
+
+spins_grads <- read_csv("../data/spins_concatenated_full.csv")
+spins_grads <- spins_grads %>%
+  mutate(site = str_sub(`Subject ID`, 5, 7)) %>%
+  rename(task = `EA or RS`, 
+         subject = `Subject ID`)
+```
+
+
+## read subject data
+
+
+```{r}
+lol_spins_behav <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2021-07-29.csv')
+```
+
+
+## fitting models
+
+Models
+
+- model includes DX, sex, age, scanner, fd?
+
+- what about between task - 
+  - do paired ttest?
+  
+  
+So the current df is here: /projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_ea_conn_04-29-2021.csv
+6:27
+However, I also excluded ZHP_0110 and ZHP_0172 as they did not complete the soc cog tasks
+6:27
+So that df includes 356, but my current N is 354
+
+The following participants were missing task-rest cleaned files:
+sub-CMP0180
+sub-CMP0182
+sub-CMP0191
+sub-CMP0196
+sub-CMP0198
+sub-CMP0207
+sub-CMP0213
+sub-ZHH0034
+
+The following participants were missing task-emp background files:
+sub-CMH0025
+sub-CMH0044
+sub-CMH0095
+sub-CMH0138
+sub-MRC0075
+sub-MRP0077
+sub-MRP0147
+sub-MRP0149
+sub-MRP0151
+sub-MRP0161
+sub-ZHH0038
+sub-ZHP0061
+sub-ZHP0086
+
+## 
+
+```{r}
+grand_mean_grads <- spins_grads %>%
+  filter(subject %in% lol_spins_behav$subject) %>%
+  group_by(site, task, ROI, Network) %>%
+  summarise_at(vars(starts_with("grad")), mean)
+
+grand_mean_grads
+```
+
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad1, y = grad2, colour = Network)) +
+  geom_point() +
+  facet_grid(task ~ site)
+```
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad1, y = grad3, colour = Network)) +
+  geom_point() +
+  facet_grid(task ~ site)
+```
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad2, y = grad3, colour = Network)) +
+  geom_point() +
+  facet_grid(task ~ site)
+```
+
+
+
+From age paper:
+Each axis of this 3D space was defined by the values along the first three gradients. Within network dispersion was quantified as sum squared Euclidean distance of network nodes to the network centroid at individual level. Between network dispersion was calculated as the Euclidean distance between network centroids.
+
+They also did linear models on nodal values from the first three gradients
+
+## calculating centroid and within network dispersion
+
+```{r}
+## calculate the network centers
+subject_level_centers <- spins_grads %>%
+  filter(subject %in% lol_spins_behav$subject) %>%
+  group_by(site, task, Network, subject) %>%
+  summarise_at(c("grad1", "grad2", "grad3"), mean)
+  
+subject_within_dispersion <- subject_level_centers %>%
+  
+  ## combine with orig spins grads
+  inner_join(spins_grads, by = c("site", "task", "Network", "subject"), suffix = c("_center", "")) %>%
+  
+  ## calculate squared euclidian distance from the network centroid  
+  ungroup() %>%
+  mutate(roi_distance_sq = (grad1_center - grad1)**2 + (grad2_center - grad2)**2 + (grad3_center - grad3)**2) %>% 
+  
+  ## dispersion as the sum of the squared distances within network and participant
+  group_by(site, task, Network, subject) %>%
+  summarise(within_dispersion = sum(roi_distance_sq))
+  
+```
+
+## calculating between network dispersion
+
+Between network dispersion was calculated as the Euclidean distance between network centroids.
+
+```{r}
+library(igraph)
+
+## assumes that the network_centroids contains columns "Network", "grad1", "grad2", "grad3"
+calc_between_distances <- function(network_centoids) {
+  ## grab the unique network node names
+  network_names <- unique(network_centoids$Network)
+
+  ## create a graph dataframe of edges
+  result <- make_full_graph(length(network_names), directed = FALSE) %>% as_data_frame()
+  
+  for (i in 1:nrow(result)) {
+    to_name <- network_names[result$to[i]]
+    from_name <- network_names[result$from[i]]
+   
+    result$to_name[i] <- to_name
+    result$from_name[i] <- from_name
+
+  res_df <- test_centroids %>%
+    filter(Network == to_name | Network == from_name) %>%
+    mutate_at(vars(c("grad1", "grad2", "grad3")), function(x) {(x - lag(x))**2}) %>%
+    mutate(eucl_dist = sqrt(grad1 + grad2 + grad3))
+
+  result$eucl_dist[i] <- res_df$eucl_dist[2]
+
+  }
+
+  return(result %>% select(to_name, from_name, eucl_dist))
+}
+```
+
+
+```{r}
+between_network <- subject_level_centers %>%
+  ungroup() %>%
+  group_by(site, task, subject) %>%
+  nest() %>%
+  mutate(distances = map(data, calc_between_distances)) 
+
+```
+
+```{r}
+library(broom)
+subject_level_centers %>%
+  inner_join(lol_spins_behav, by = "subject") %>%
+  mutate( fd_mean = if_else(task=="EA", fd_mean_emp, `fd_mean.rest_bold`)) %>%
+  ungroup() %>%
+  group_by(Network) %>%
+  do(tidy(aov(grad1 ~ task + fd_mean_emp + scanner + Error(subject), data = .))) %>%
+  knitr::kable()
+```
+```{r}
+subject_within_dispersion %>%
+  inner_join(lol_spins_behav, by = "subject") %>%
+  mutate( fd_mean = if_else(task=="EA", fd_mean_emp, `fd_mean.rest_bold`)) %>%
+  group_by(Network, task) %>%
+  do(tidy(aov(within_dispersion ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr")) %>%
+  knitr::kable()
+```
+```{r}
+subject_level_centers %>%
+  inner_join(lol_spins_behav, by = "subject") %>%
+  mutate( fd_mean = if_else(task=="EA", fd_mean_emp, `fd_mean.rest_bold`)) %>%
+
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+    ungroup() %>%
+  group_by(Network, task, grad_num) %>%
+  do(tidy(aov(grad_value ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr")) %>%
+  knitr::kable()
+```
+
+
