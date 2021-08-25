@@ -11,7 +11,7 @@ Presentation can be found at https://docs.google.com/presentation/d/1y-f1USF6cm8
 
 Original SPINS study can be found at **ADD LINK**
 
-Requirements for the virtual environment for Jupyter can be found at **insert requirements file**
+Requirements for the virtual environment for Jupyter can be found at nilearn_brainspace_requirements.txt
 
 Software used for this project includes Jupyter notebook and RStudio. Brainspace packages were installed to the python environment to facilitate gradient creation.
 
