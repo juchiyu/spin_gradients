@@ -1,6 +1,20 @@
 # spin_gradients
 project for tigrlab
 
+by Lucy Bassman e:lbassman@uoguelph.ca
+
+May 20 2021 - August 27 2021
+
+Report Paper can be found at https://docs.google.com/document/d/1Qr25lIVcH24J8fKIM8v2vZNBFHagVYNCdLWrhlToU7w/edit
+
+Presentation can be found at https://docs.google.com/presentation/d/1y-f1USF6cm8X_cUrxV9pGlbY1QvMKObm_CIh7cFLqWI/edit#slide=id.ge5e02efbea_0_18
+
+Original SPINS study can be found at **ADD LINK**
+
+Requirements for the virtual environment for Jupyter can be found at **insert requirements file**
+
+Software used for this project includes Jupyter notebook and RStudio. Brainspace packages were installed to the python environment to facilitate gradient creation.
+
 all output csv files can be found under the main directory /scratch/a/arisvoin/lbassman/spins_gradients/spin_gradients/
 
 - four csv files containing first 10 gradients for all subjects with networks:
@@ -15,5 +29,5 @@ all output csv files can be found under the main directory /scratch/a/arisvoin/l
   - gsr_network_averages_full.csv has the full ea timeseries with gsr applied,
   - gsr_network_averages_shortened.csv has the short ea timeseries and gsr applied,
   
-- the spins_gradients folder (directory above spin_gradients) has a folder for each subject in the study, plus others that were excluded, with pscalars for every gradient variation (gsr, task, concatenated, shortened) 
+- the spins_gradients folder (directory above spin_gradients) has a folder for each subject in the study, with pscalars for every gradient variation (gsr, task, concatenated, shortened) 
   
