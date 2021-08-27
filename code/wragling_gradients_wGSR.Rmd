@@ -31,6 +31,19 @@ spins_grads <- read_csv("../gsr_spins_concat_full")
 lol_spins_behav <- 
   read_csv('../data/spins_lolivers_subject_info_for_grads_2021-07-29.csv')
 ```
+## grab some network colours
+
+```{r}
+networks <- read_delim("../networks.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  select(NETWORK, NETWORKKEY, RED, GREEN, BLUE, ALPHA) %>%
+  distinct() %>%
+  add_row(NETWORK = "Subcortical", NETWORKKEY = 13, RED = 0, GREEN=0, BLUE=0, ALPHA=255) %>%
+  mutate(hex = rgb(RED, GREEN, BLUE, maxColorValue = 255)) %>%
+  arrange(NETWORKKEY)
+
+networks
+```
 
 
 ## fitting models
@@ -78,6 +91,7 @@ sub-ZHP0086
 
 ```{r}
 grand_mean_grads <- spins_grads %>%
+  mutate(Network = factor(Network, levels = networks$NETWORK)) %>%
   filter(Subject %in% lol_spins_behav$subject) %>%
   group_by(Site, Task, ROI, Network) %>%
   summarise_at(vars(starts_with("grad")), mean)
@@ -89,21 +103,30 @@ grand_mean_grads
 grand_mean_grads %>%
   ggplot(aes(x = grad1, y = grad2, colour = Network)) +
   geom_point() +
+  scale_color_manual(values = networks$hex) +
   facet_grid(Task ~ Site)
 ```
 ```{r fig.height=4, fig.width=12}
 grand_mean_grads %>%
   ggplot(aes(x = grad1, y = grad3, colour = Network)) +
   geom_point() +
+  scale_color_manual(values = networks$hex) +
   facet_grid(Task ~ Site)
 ```
 ```{r fig.height=4, fig.width=12}
 grand_mean_grads %>%
   ggplot(aes(x = grad2, y = grad3, colour = Network)) +
   geom_point() +
+  scale_color_manual(values = networks$hex) +
   facet_grid(Task ~ Site)
 ```
-
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad1, y = grad4, colour = Network)) +
+  geom_point() +
+  scale_color_manual(values = networks$hex) +
+  facet_grid(Task ~ Site)
+```
 
 
 From age paper:
@@ -239,7 +262,7 @@ net_centroids_results %>%
 all_roi_results <- spins_grads %>%
   inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
   mutate( fd_mean = if_else(Task=="EA", fd_mean_emp, `fd_mean.rest_bold`)) %>%
-  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+  pivot_longer(grad1:grad4, names_to = "grad_num", values_to = "grad_value") %>%
     ungroup() %>%
   group_by(Network, Task, grad_num, ROI) %>%
   do(tidy(lm(grad_value ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
@@ -255,4 +278,17 @@ all_roi_results %>%
   filter(term == "diagnostic_groupcontrol", p_FDR < 0.05)
 ```
 
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol", p_FDR < 0.05) %>%
+  count(Task, grad_num) %>%
+  arrange(Task, grad_num)
+```
 
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol", p_FDR < 0.05) %>%
+  count(Task, grad_num, Network) %>%
+  pivot_wider(names_from = grad_num, values_from = n)
+  
+```
