@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  rstudio:
+    build: .
+    ports:
+      - 8787:8787
+    volumes:
+      - ./:/home/SPIN_GRADIENTS
+    environment:
+      - DISABLE_AUTH=true
