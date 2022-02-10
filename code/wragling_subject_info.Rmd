@@ -13,13 +13,20 @@ library(tidyverse)
 
 
 ```{r}
-
-spins_grads <- read_csv("../data/spins_concatenated_full.csv")
-spins_grads <- spins_grads %>%
+# read the full grads file
+spins_grads <- read_csv("../data/spins_concatenated_full.csv") %>%
   mutate(site = str_sub(`Subject ID`, 5, 7)) %>%
   rename(task = `EA or RS`, 
-         subject = `Subject ID`)
+         subject = `Subject ID`) 
+
+# get lists of the distinct number of subjects
+grads_RS_subjects <- spins_grads %>% filter(task=="RS") %>% select(subject) %>% distinct()
+grads_EA_subjects <- spins_grads %>% filter(task=="EA") %>% select(subject) %>% distinct()
+
+# remove the full grads file for space
+rm(spins_grads)
 ```
+
 
 
 ## wrangle clinical data
@@ -35,47 +42,23 @@ RS_QC_exclusion_list <- read_csv("../data/RS_QC_exclusion_list.csv",
 EA_QC_exclusion_list <- read_csv("../data/QC_EA_task_exclusion_list_04-26-2021.csv",
     col_names = "record_id")
 
+
+## contains all SPINS n=557 
 spins_behav_data_full_11_20_2020 <- read_csv("../data/spins_behav_data_full_11-20-2020.csv")
+
+
+# contains n=356 observations
+spins_behav_ea_conn_04_29_2021 <- read_csv("../data/spins_behav_ea_conn_04-29-2021.csv")
 
 spins_demo <- spins_behav_data_full_11_20_2020 %>%
   select(record_id, site, scanner, diagnostic_group, demo_sex, demo_age_study_entry, term_early_withdraw) 
   
 ```
-```{r}
+
+
+```{r eval = FALSE}
 SPINS_fd_by_run <- read_csv("../data/SPINS_fd_by_run_12-14-2020.csv")
-```
 
-note MRP0147 and MRP0149 have early withdrawal codes - so don't need to worry about these values
-
-```{r}
-SPINS_fd_by_run %>%
-  drop_na(fd_mean.task)
-```
-
-```{r}
-RS_QC_exclusion_list %>%
-  mutate(subject = str_c("sub-", str_sub(subid, 7,9), str_sub(subid, 11,15))) 
-```
-
-```{r}
-grads_RS_subjects <- spins_grads %>% filter(task=="RS") %>% select(subject) %>% distinct()
-grads_EA_subjects <- spins_grads %>% filter(task=="EA") %>% select(subject) %>% distinct()
-```
-
-
-```{r} 
-SPINS_fd_by_run %>%
-  mutate(subject = str_c("sub-", str_sub(record_id, 7,9), str_sub(record_id, 11,15))) %>%
-  filter(`fd_mean.emp_run-1_bold` > 0.5)
-```
-
-Note: teh weird "fd_mean.emp" and rest runs one and two come from pilots or early withdrawal participants - so we can drop those columns
-
-We are also not using the imiate or observe tasks for this
-
-
-
-```{r} 
 fd_score <- SPINS_fd_by_run %>%
     select(-fd_mean.imi_bold, 
            -fd_mean.obs_bold, 
@@ -86,17 +69,63 @@ fd_score <- SPINS_fd_by_run %>%
   mutate(fd_max_emp = max(c_across(starts_with("fd_mean.emp")), na.rm = TRUE),
          fd_mean_emp = mean(c_across(starts_with("fd_mean.emp")), na.rm = TRUE)) %>%
   mutate(subject = str_c("sub-", str_sub(record_id, 7,9), str_sub(record_id, 11,15))) 
-
 ```
+
+note MRP0147 and MRP0149 have early withdrawal codes - so don't need to worry about these values
+
+```{r}
+group_bold <- read_delim("../data/group_bold.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>%
+  separate(bids_name, 
+           into = c("subject", "session", "task", "run"), 
+           extra = "merge",
+           sep = "_",
+           remove = FALSE)
+
+# note - I checked that: percent_fd would not exclude addional people and size_t was acceptable for all scans
+fd_info <- group_bold %>%
+  filter(task %in% c("task-rest", "task-emp")) %>%
+  group_by(subject, session, task) %>%
+  summarise(n_scans = n(),
+            fd_mean = mean(fd_mean)) %>%
+  pivot_wider(id_cols = c("subject", "session"),
+              names_from = task,
+              values_from = c(n_scans, fd_mean))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+Note: teh weird "fd_mean.emp" and rest runs one and two come from pilots or early withdrawal participants - so we can drop those columns
+
+We are also not using the imiate or observe tasks for this
+
+```{r}
+spins_demo %>%
+  mutate(subject = str_c("sub-", str_sub(record_id,7,9), str_sub(record_id,11)))
+```
+
+
+
 ```{r}
 spins_demo_withAC <- spins_demo %>%
-  left_join(fd_score, by = "record_id") %>%
+  mutate(subject = str_c("sub-", str_sub(record_id,7,9), str_sub(record_id,11))) %>%
+  left_join(fd_info, by = "subject") %>%
   mutate(has_RS_grads = subject %in% grads_EA_subjects$subject,
          has_EA_grads = subject %in% grads_RS_subjects$subject,
          RS_QC_exclude = record_id %in% RS_QC_exclusion_list$record_id,
          EA_QC_exclude = record_id %in% EA_QC_exclusion_list$record_id,
-         RS_mo_exclude = `fd_mean.rest_bold` > 0.5,
-         RS_mo_exclude = `fd_mean_emp` > 0.5,
+         RS_mo_exclude = `fd_mean_task-rest` > 0.5,
+         EMP_mo_exclude = `fd_mean_task-emp` > 0.5,
          withdrawn_exclude = !(is.na(term_early_withdraw))) %>%
   rowwise() %>%
   mutate(exclude_MRI = any(c_across(ends_with("exclude")), na.rm = TRUE))
@@ -116,33 +145,27 @@ In general - we might as well remove anyone with a withdrawn code from the study
 
 ```{r}
 spins_demo_withAC %>%
-  summary
+  mutate(across(.cols = c("site", "scanner", "diagnostic_group", "demo_sex"), 
+                .fns = factor)) %>%
+  summary()
 ```
+
 
 
 ```{r}
 spins_demo_withAC %>%
   count(exclude_MRI, has_EA_grads, has_RS_grads)
 ```
-
-```{r}
-write_csv(../data/spins)
-```
-
-
-```{r}
-spins_behav_ea_conn_04_29_2021 <- read_csv("../data/spins_behav_ea_conn_04-29-2021.csv")
-
-```
-
-
 ```{r}
 spins_demo_withAC %>%
-  anti_join(spins_behav_ea_conn_04_29_2021, by = "record_id") %>%
-  filter(exclude_MRI==FALSE, 
-         has_EA_grads==TRUE, has_RS_grads==TRUE) 
-  
+  filter(exclude_MRI == FALSE, has_EA_grads == FALSE, has_RS_grads == FALSE)
 ```
+
+```{r}
+spins_behav_ea_conn_04_29_2021 %>% names()
+```
+
+
 
 
 
@@ -157,15 +180,26 @@ spins_demo_withAC %>%
 ```
 
 ```{r}
+demo_vars = c('record_id', 'site', 'scanner', 'diagnostic_group', 'demo_sex', 'demo_age_study_entry', 'term_early_withdraw')
+clinical_vars = c("scog_tasit1_total", "scog_tasit2_total", "scog_tasit3_total", 
+                  "np_composite_tscore",  
+                  "np_domain_tscore_process_speed",   "np_domain_tscore_att_vigilance",
+                  "np_domain_tscore_work_mem","np_domain_tscore_verbal_learning",
+                  "np_domain_tscore_visual_learning",
+                  "np_domain_tscore_reasoning_ps","np_domain_tscore_social_cog",
+                  "bprs_factor_pos_symp", "bprs_factor_total", "bprs_factor_neg_symp",
+                  "qls_total", "sans_total_sc", "bsfs_total")
+
 lol_spins_behav <- spins_behav_ea_conn_04_29_2021 %>%
-  select(record_id, site, scanner, diagnostic_group, demo_sex, demo_age_study_entry, term_early_withdraw) %>%
-  left_join(fd_score, by = "record_id") %>%
+  select(all_of(demo_vars), all_of(clinical_vars)) %>%
+  mutate(subject = str_c("sub-", str_sub(record_id,7,9), str_sub(record_id,11))) %>%
+  left_join(fd_info, by = "subject") %>%
   mutate(has_RS_grads = subject %in% grads_EA_subjects$subject,
          has_EA_grads = subject %in% grads_RS_subjects$subject,
          RS_QC_exclude = record_id %in% RS_QC_exclusion_list$record_id,
          EA_QC_exclude = record_id %in% EA_QC_exclusion_list$record_id,
-         RS_mo_exclude = `fd_mean.rest_bold` > 0.5,
-         RS_mo_exclude = `fd_mean_emp` > 0.5,
+         RS_mo_exclude = `fd_mean_task-rest` > 0.5,
+         EA_mo_exclude = `fd_mean_task-emp` > 0.5,
          withdrawn_exclude = !(is.na(term_early_withdraw))) %>%
   rowwise() %>%
   mutate(exclude_MRI = any(c_across(ends_with("exclude")), na.rm = TRUE))
@@ -176,11 +210,21 @@ lol_spins_behav %>%
   filter(exclude_MRI==TRUE)
 ```
 ```{r}
-lol_spins_behav %>% summary()
+lol_spins_behav %>% 
+    mutate(across(.cols = c("site", "scanner", "diagnostic_group", "demo_sex"), 
+                .fns = factor)) %>%
+  filter(exclude_MRI==FALSE) %>%
+  summary()
 ```
+
+
+One weird observation - CMP0218 - CMP0220 missing their MRI QC bold scores 
+
+
 ```{r}
 lol_spins_behav %>%
-  write_csv('../data/spins_lolivers_subject_info_for_grads_2021-07-29.csv')
+  filter(exclude_MRI==FALSE) %>%
+  write_csv('../data/spins_lolivers_subject_info_for_grads_2022-02-02.csv')
 ```
 
 
