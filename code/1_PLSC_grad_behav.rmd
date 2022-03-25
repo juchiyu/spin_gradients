@@ -1,0 +1,87 @@
+---
+title: "1_PLSC_grad_behav"
+author: "Ju-Chi.Yu"
+date: "3/25/2022"
+output: html_document
+---
+
+Grabbing SPINS gradients
+
+```{r}
+library(tidyverse)
+library(ggseg)
+library(ggsegGlasser)
+library(broom)
+library(TExPosition)
+```
+
+## Read in the SPINS big table
+
+
+```{r}
+
+spins_grads_wGSR <- read_csv("../gsr_spins_concat_full")
+# spins_grads <- spins_grads %>%
+#   mutate(site = str_sub(`Subject`, 5, 7)) %>%
+#   rename(task = `EA or RS`, 
+#          subject = `Subject ID`)
+spins_grads_noGSR <- read_csv("../spins_concat_full")
+
+spins_grads <- bind_rows("GSR" = spins_grads_wGSR,
+                         "noGSR" = spins_grads_noGSR,
+                         .id = "GSR")
+
+rm(spins_grads_noGSR, spins_grads_wGSR)
+
+spins_grads_num <- data.frame(spins_grads[,c(3:5, 13,15)])
+
+spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI", direction = "wide")
+```
+
+## read subject data
+
+```{r}
+lol_spins_behav <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2022-02-02.csv') %>%
+  filter(exclude_MRI==FALSE, 
+         has_EA_grads==TRUE, 
+         has_RS_grads==TRUE)
+names(lol_spins_behav)
+
+## design matrix
+spins_dx <- lol_spins_behav %>%
+  select(site,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
+
+## numeric data
+spins_behav_num <- lol_spins_behav %>% 
+  select(scog_tasit1_total, scog_tasit2_total, scog_tasit3_total, np_composite_tscore, np_domain_tscore_process_speed,	np_domain_tscore_att_vigilance,	np_domain_tscore_work_mem,	np_domain_tscore_verbal_learning,	np_domain_tscore_visual_learning,	np_domain_tscore_reasoning_ps,	np_domain_tscore_social_cog,	bprs_factor_pos_symp,	bprs_factor_total,	bprs_factor_neg_symp,	qls_total,	sans_total_sc,	bsfs_total
+  ) %>% data.frame
+colnames(spins_behav_num)
+rownames(spins_behav_num) <- lol_spins_behav$subject
+
+```
+
+## Check subject overlap
+
+```{r}
+grad.sub <- spins_grads_wide$Subject[order(spins_grads_wide$Subject)]
+behav.sub <- lol_spins_behav$subject[order(lol_spins_behav$subject)]
+
+behav.sub[behav.sub %in% grad.sub == FALSE]
+grad.sub[grad.sub %in% behav.sub == FALSE]
+```
+
+
+## grab some network colours
+
+```{r}
+networks <- read_delim("../networks.txt", 
+                       "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  select(NETWORK, NETWORKKEY, RED, GREEN, BLUE, ALPHA) %>%
+  distinct() %>%
+  add_row(NETWORK = "Subcortical", NETWORKKEY = 13, RED = 0, GREEN=0, BLUE=0, ALPHA=255) %>%
+  mutate(hex = rgb(RED, GREEN, BLUE, maxColorValue = 255)) %>%
+  arrange(NETWORKKEY)
+
+networks
+```
