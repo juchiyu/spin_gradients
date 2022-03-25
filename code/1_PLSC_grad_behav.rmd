@@ -7,18 +7,19 @@ output: html_document
 
 Grabbing SPINS gradients
 
-```{r}
+```{r, echo = FALSE}
 library(tidyverse)
 library(ggseg)
 library(ggsegGlasser)
 library(broom)
 library(TExPosition)
+library(PTCA4CATA)
 ```
 
 ## Read in the SPINS big table
 
 
-```{r}
+```{r, echo = FALSE, warning= FALSE, message='hide'}
 
 spins_grads_wGSR <- read_csv("../gsr_spins_concat_full")
 # spins_grads <- spins_grads %>%
@@ -40,7 +41,7 @@ spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI",
 
 ## read subject data
 
-```{r}
+```{r, echo = FALSE, warning= FALSE, message='hide'}
 lol_spins_behav <- 
   read_csv('../data/spins_lolivers_subject_info_for_grads_2022-02-02.csv') %>%
   filter(exclude_MRI==FALSE, 
@@ -48,9 +49,11 @@ lol_spins_behav <-
          has_RS_grads==TRUE)
 names(lol_spins_behav)
 
-## design matrix
+## design matrix for subjects
 spins_dx <- lol_spins_behav %>%
-  select(site,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
+  select(subject,site,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
+spins_dx_org <- spins_dx[,-1] %>% data.frame
+rownames(spins_dx_org) <- spins_dx$subject
 
 ## numeric data
 spins_behav_num <- lol_spins_behav %>% 
@@ -63,18 +66,32 @@ rownames(spins_behav_num) <- lol_spins_behav$subject
 
 ## Check subject overlap
 
-```{r}
+```{r, warning= FALSE, message='hide'}
 grad.sub <- spins_grads_wide$Subject[order(spins_grads_wide$Subject)]
 behav.sub <- lol_spins_behav$subject[order(lol_spins_behav$subject)]
 
 behav.sub[behav.sub %in% grad.sub == FALSE]
 grad.sub[grad.sub %in% behav.sub == FALSE]
-```
 
+## kept subjects
+kept.sub <- behav.sub[behav.sub %in% grad.sub] # 342
+kept.sub[complete.cases(spins_behav_num[kept.sub,c(1:11, 17)]) == FALSE]
+kept.sub <- kept.sub[complete.cases(spins_behav_num[kept.sub,c(1:11, 17)])] # 338
+
+## grab the matching data
+
+behav.dat <- spins_behav_num[kept.sub,c(1:11, 17)]
+spins_grads_wide_org <- spins_grads_wide[,-1]
+rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
+grad.dat <- spins_grads_wide_org[kept.sub,]
+
+rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num, spins_grads_num)
+
+```
 
 ## grab some network colours
 
-```{r}
+```{r, warning= FALSE, message='hide'}
 networks <- read_delim("../networks.txt", 
                        "\t", escape_double = FALSE, trim_ws = TRUE) %>%
   select(NETWORK, NETWORKKEY, RED, GREEN, BLUE, ALPHA) %>%
@@ -85,3 +102,122 @@ networks <- read_delim("../networks.txt",
 
 networks
 ```
+
+## get row and column designs
+
+```{r}
+## match ROIs to networks
+ROI.network.match <- cbind(spins_grads$ROI, spins_grads$Network) %>% unique
+ROI.idx <- ROI.network.match[,2]
+names(ROI.idx) <- ROI.network.match[,1]
+### match networks with colors
+net.col.idx <- networks$hex
+names(net.col.idx) <- networks$NETWORK
+
+## design matrix for subjects
+sub.dx <- spins_dx_org[kept.sub,]
+
+diagnostic.col <- sub.dx$diagnostic_group %>% as.matrix %>% makeNominalData() %>% createColorVectorsByDesign()
+rownames(diagnostic.col$gc) <- sub(".","", rownames(diagnostic.col$gc))
+
+## design matrix for columns - behavioral 
+behav.dx <- matrix(nrow = ncol(behav.dat), ncol = 1, dimnames = list(colnames(behav.dat), "type")) %>% as.data.frame
+
+behav.col <- c("scog" = "#F28E2B",
+               "np" = "#59A14F",
+               "bsfs" = "#D37295")
+
+behav.dx$type <- sub("(^[^_]+).*", "\\1", colnames(behav.dat))
+behav.dx$type.col <- recode(behav.dx$type, !!!behav.col)
+
+## design matrix for columns - gradient
+grad.dx <- matrix(nrow = ncol(grad.dat), ncol = 4, dimnames = list(colnames(grad.dat), c("gradient", "ROI", "network", "network.col"))) %>% as.data.frame
+
+grad.dx$gradient <- sub("(^[^.]+).*", "\\1", colnames(grad.dat))
+grad.dx$ROI <- sub("^[^.]+.(*)", "\\1", colnames(grad.dat))
+grad.dx$network <- recode(grad.dx$ROI, !!!ROI.idx)
+grad.dx$network.col <- recode(grad.dx$network, !!!net.col.idx)
+```
+
+## Run PLS-C
+
+```{r}
+pls.res <- tepPLS(behav.dat, grad.dat, DESIGN = sub.dx$diagnostic_group, graphs = FALSE)
+
+PlotScree(pls.res$TExPosition.Data$eigs)
+```
+
+## Results {.tabset}
+
+```{r, include = FALSE}
+lxly.out <- list()
+
+for (check.dim in 1:3){
+  
+  lxly <- cbind(pls.res$TExPosition.Data$lx[,check.dim], pls.res$TExPosition.Data$ly[,check.dim])
+  colnames(lxly) <- c(paste0("Dim", check.dim, c(".Behavioural", ".gradient")))
+  
+  lxly.boot <- Boot4Mean(lxly, sub.dx$diagnostic_group, niter = 1000)
+  colnames(lxly.boot$GroupMeans) <- colnames(lxly.boot$BootCube) <- c(paste0("Dim", check.dim, c(".Behavioural", ".gradient")))
+  
+  ## plot latent variables
+  lxly.all <- createFactorMap(lxly,
+                              title = paste0("Latent variables"),
+                              col.background = NULL,
+                             col.axes = "orchid4",
+                             alpha.axes = 0.5,
+                              col.points = diagnostic.col$oc,
+                              alpha.points = 0.1)
+  
+  lxly.avg <- createFactorMap(lxly.boot$GroupMeans,
+                              col.points = diagnostic.col$gc[rownames(lxly.boot$GroupMeans),],
+                              col.labels =  diagnostic.col$gc[rownames(lxly.boot$GroupMeans),], 
+                              pch = 17, alpha.points = 1, text.cex = 5)
+  
+  lxly.CI <- MakeCIEllipses(lxly.boot$BootCube,
+                            col =  diagnostic.col$gc[rownames(lxly.boot$BootCube),],
+                            names.of.factors = c(paste0("Dim", check.dim, c(".Behavioural", ".gradient"))), alpha.ellipse = 0.1, line.size = 0.5)
+  
+  lxly.out[[check.dim]] <- lxly.all$zeMap_background + lxly.all$zeMap_dots + lxly.CI + lxly.avg$zeMap_dots + lxly.avg$zeMap_text + coord_cartesian()
+
+}
+
+```
+
+### Dimension 1
+
+```{r, fig.show = 'hold', out.width = '50%'}
+lxly.out[[1]]
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),1],
+               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
+               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+```
+
+### Dimension 2
+
+```{r, fig.show = 'hold', out.width = '50%'}
+lxly.out[[2]]
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),2],
+               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
+               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+```
+
+### Dimension 3
+
+```{r, fig.show = 'hold', out.width = '50%'}
+lxly.out[[3]]
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),3],
+               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
+               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+```
+
+
