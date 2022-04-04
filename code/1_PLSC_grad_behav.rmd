@@ -34,8 +34,8 @@ spins_grads <- bind_rows("GSR" = spins_grads_wGSR,
 
 rm(spins_grads_noGSR, spins_grads_wGSR)
 
-spins_grads_num <- data.frame(spins_grads[,c(3:5, 13,15,16)])
-
+spins_grads_num <- data.frame(spins_grads[,c(3:5, 13,15)])
+spins_grads_num_full <- data.frame(spins_grads[,c(3:5, 13,15,16)])
 spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI", direction = "wide")
 ```
 
@@ -85,7 +85,7 @@ spins_grads_wide_org <- spins_grads_wide[,-1]
 rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
 grad.dat <- spins_grads_wide_org[kept.sub,]
 
-rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num)
+rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num, spins_grads_num)
 
 ```
 
@@ -148,7 +148,7 @@ grad.dx$gradient.col <- recode(grad.dx$gradient, !!!grad.col.idx)
 ## Run PLS-C
 
 ```{r}
-pls.res <- tepPLS(behav.dat, grad.dat, DESIGN = sub.dx$diagnostic_group, graphs = FALSE)
+pls.res <- tepPLS(behav.dat, grad.dat, DESIGN = sub.dx$diagnostic_group, make_design_nominal = TRUE, graphs = FALSE)
 
 PlotScree(pls.res$TExPosition.Data$eigs)
 ```
@@ -329,9 +329,7 @@ pq_for_plot <- full.pq %>%
   mutate(roi = str_remove(ROI, "_ROI"),
          label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
                            str_starts(ROI, "R_") ~ str_c("rh_", roi)))
-```
 
-```{r, include = FALSE}
 gradient_raw_brain <- pq_for_plot %>%
   as.data.frame() %>%
   group_by(gradient) %>%
@@ -345,7 +343,7 @@ gradient_raw_brain <- pq_for_plot %>%
 
 ### Dimension 1
 
-```{r, fig.show = 'hold', out.width = '50%'}
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
 gradient_raw_brain
 
 pq_for_plot %>%
@@ -361,7 +359,7 @@ pq_for_plot %>%
 
 ### Dimension 2
 
-```{r, fig.show = 'hold', out.width = '50%'}
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
 gradient_raw_brain
 
 pq_for_plot %>%
@@ -377,7 +375,7 @@ pq_for_plot %>%
 
 ### Dimension 3
 
-```{r, fig.show = 'hold', out.width = '50%'}
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
 gradient_raw_brain
 
 pq_for_plot %>%
@@ -393,12 +391,12 @@ pq_for_plot %>%
 
 ## Fancy figures {.tabset}
 
-```{r}
+```{r, include = FALSE}
 ## organize data - ROI average
-spins_mean <- getMeans(spins_grads_num[,1:3], spins_grads_num$ROI)
+spins_mean <- getMeans(spins_grads_num_full[,1:3], spins_grads_num_full$ROI)
 grad2plot <- spins_mean
 colnames(grad2plot) <- c(paste0("Gradient ", c(1:3)))
-grad4grp <- unique(spins_grads_num[,c(4,6)])
+grad4grp <- unique(spins_grads_num_full[,c(4,6)])
 rownames(grad4grp) <- grad4grp$ROI
 
 ## organize data - network mean
@@ -415,12 +413,12 @@ roi.col$gc <- as.matrix(net.col.idx)
 
 ### Gradients 1 & 2
 
-```{r}
+```{r, echo = FALSE}
 G1G2 <- createFactorMap(grad2plot,
                 axis1 = 1, axis2 = 2,
                 col.points = roi.col$oc[rownames(grad2plot),],
                 alpha.points = 0.2, 
-                col.background = NULL,
+                col.background = "grey96",
                 col.axes = "grey30")
 
 G1G2.mean <- createFactorMap(net_mean,
@@ -437,12 +435,12 @@ G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_dots + G1G2.mean$zeMap
 
 ### Gradients 2 & 3
 
-```{r}
+```{r, echo = FALSE}
 G2G3 <- createFactorMap(grad2plot,
                 axis1 = 2, axis2 = 3,
                 col.points = roi.col$oc[rownames(grad2plot),],
                 alpha.points = 0.4, 
-                col.background = NULL,
+                col.background = "grey96",
                 col.axes = "grey30")
 
 G2G3.mean <- createFactorMap(net_mean,
@@ -458,12 +456,12 @@ G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_dots + G2G3.mean$zeMap
 
 ### Gradients 1 & 3
 
-```{r}
+```{r, echo = FALSE}
 G1G3 <- createFactorMap(grad2plot,
                 axis1 = 1, axis2 = 3,
                 col.points = roi.col$oc[rownames(grad2plot),],
                 alpha.points = 0.4, 
-                col.background = NULL,
+                col.background = "grey96",
                 col.axes = "grey30")
 
 G1G3.mean <- createFactorMap(net_mean,
