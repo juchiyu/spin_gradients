@@ -35,7 +35,7 @@ spins_grads <- bind_rows("GSR" = spins_grads_wGSR,
 rm(spins_grads_noGSR, spins_grads_wGSR)
 
 spins_grads_num <- data.frame(spins_grads[,c(3:5, 13,15)])
-
+spins_grads_num_full <- data.frame(spins_grads[,c(3:5, 13,15,16)])
 spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI", direction = "wide")
 ```
 
@@ -137,13 +137,26 @@ grad.dx$gradient <- sub("(^[^.]+).*", "\\1", colnames(grad.dat))
 grad.dx$ROI <- sub("^[^.]+.(*)", "\\1", colnames(grad.dat))
 grad.dx$network <- recode(grad.dx$ROI, !!!ROI.idx)
 grad.dx$network.col <- recode(grad.dx$network, !!!net.col.idx)
+
+## get different alpha for gradients
+grad.col.idx <- c("grad1" = "grey30",
+                    "grad2" = "grey60",
+                    "grad3" = "grey90")
+grad.dx$gradient.col <- recode(grad.dx$gradient, !!!grad.col.idx)
 ```
 
 ## Run PLS-C
 
 ```{r}
-pls.res <- tepPLS(behav.dat, grad.dat, DESIGN = sub.dx$diagnostic_group, graphs = FALSE)
+pls.res <- tepPLS(behav.dat, grad.dat, DESIGN = sub.dx$diagnostic_group, make_design_nominal = TRUE, graphs = FALSE)
 
+## swith direction for dimension 3
+pls.res$TExPosition.Data$fi[,3] <- pls.res$TExPosition.Data$fi[,3]*-1
+pls.res$TExPosition.Data$fj[,3] <- pls.res$TExPosition.Data$fj[,3]*-1
+pls.res$TExPosition.Data$pdq$p[,3] <- pls.res$TExPosition.Data$pdq$p[,3]*-1
+pls.res$TExPosition.Data$pdq$q[,3] <- pls.res$TExPosition.Data$pdq$q[,3]*-1
+pls.res$TExPosition.Data$lx[,3] <- pls.res$TExPosition.Data$lx[,3]*-1
+pls.res$TExPosition.Data$ly[,3] <- pls.res$TExPosition.Data$ly[,3]*-1
 PlotScree(pls.res$TExPosition.Data$eigs)
 ```
 
@@ -182,27 +195,80 @@ for (check.dim in 1:3){
 
 }
 
+q.grad1 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad1"),]
+col.grad1 <- grad.dx$network.col[which(grad.dx$gradient == "grad1")]
+dx.grad1 <- grad.dx$network[which(grad.dx$gradient == "grad1")]
+
+q.grad2 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad2"),]
+col.grad2 <- grad.dx$network.col[which(grad.dx$gradient == "grad2")]
+dx.grad2 <- grad.dx$network[which(grad.dx$gradient == "grad2")]
+
+q.grad3 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad3"),]
+col.grad3 <- grad.dx$network.col[which(grad.dx$gradient == "grad3")]
+dx.grad3 <- grad.dx$network[which(grad.dx$gradient == "grad3")]
+
 ```
 
 ### Dimension 1
 
+```{r,include = FALSE}
+
+bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),1],
+               threshold = 0, 
+               color4bar = col.grad1[order(dx.grad1)], 
+               font.size = 0, main = "Loadings - gradient 1")
+
+
+bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),1],
+               threshold = 0, 
+               color4bar = col.grad2[order(dx.grad2)], 
+               font.size = 0, main = "Loadings - gradient 2")
+
+
+bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),1],
+               threshold = 0, 
+               color4bar = col.grad3[order(dx.grad3)], 
+               font.size = 0, main = "Loadings - gradient 3")
+
+```
+
+
 ```{r, fig.show = 'hold', out.width = '50%'}
 lxly.out[[1]]
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),1],
-               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
 PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
-               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+               threshold = 0, 
+               color4bar = behav.dx$type.col, 
+               horizontal = FALSE, main = "Loadings - behavioural")
 ```
 
 ### Dimension 2
 
+```{r, include = FALSE}
+bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),2],
+               threshold = 0, 
+               color4bar = col.grad1[order(dx.grad1)], 
+               font.size = 0, main = "Loadings - gradient 1")
+
+bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),2],
+               threshold = 0, 
+               color4bar = col.grad2[order(dx.grad2)], 
+               font.size = 0, main = "Loadings - gradient 2")
+
+bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),2],
+               threshold = 0, 
+               color4bar = col.grad3[order(dx.grad3)], 
+               font.size = 0, main = "Loadings - gradient 3")
+
+```
+
+
 ```{r, fig.show = 'hold', out.width = '50%'}
 lxly.out[[2]]
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),2],
-               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
 PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
                threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
@@ -210,14 +276,257 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
 
 ### Dimension 3
 
+```{r, include = FALSE}
+
+bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),3],
+               threshold = 0, 
+               color4bar = col.grad1[order(dx.grad1)], 
+               font.size = 0, main = "Loadings - gradient 1")
+
+bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),3],
+               threshold = 0, 
+               color4bar = col.grad2[order(dx.grad2)], 
+               font.size = 0, main = "Loadings - gradient 2")
+
+bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),3],
+               threshold = 0, 
+               color4bar = col.grad3[order(dx.grad3)], 
+               font.size = 0, main = "Loadings - gradient 3")
+
+```
+
+
 ```{r, fig.show = 'hold', out.width = '50%'}
 lxly.out[[3]]
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$q[order(grad.dx$network),3],
-               threshold = 0, color4bar = grad.dx$network.col[order(grad.dx$network)], font.size = 0, main = "Loadings - gradients")
+gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
 PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
                threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
 ```
 
+## Back into the brain {.tabset} 
 
+```{r, include = FALSE}
+## reorganize data frame
+full.pq <- data.frame(grad.dx[,1:3], pls.res$TExPosition.Data$pdq$q[,1:3], colMeans(grad.dat))
+colnames(full.pq)[4:7] <- c(paste0("q", c(1:3)), "raw")
+
+pq_for_plot <- full.pq %>% 
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)))
+
+gradient_raw_brain <- pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = raw),
+        atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "BrBG", limits = c(-1,1), values = c(0, 0.4, 0.5, 0.6, 1)) +
+  ggtitle("Gradients")
+```
+
+### Dimension 1
+
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
+gradient_raw_brain
+
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q1),
+        atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  ggtitle("PLSC: Dimension 1")
+```
+
+### Dimension 2
+
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
+gradient_raw_brain
+
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q2),
+        atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  ggtitle("PLSC: Dimension 2")
+```
+
+### Dimension 3
+
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show = 'hold', out.width = '50%'}
+gradient_raw_brain
+
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q3),
+        atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  ggtitle("PLSC: Dimension 3")
+```
+
+## Fancy figures {.tabset}
+
+```{r, include = FALSE}
+## organize data - ROI average
+spins_mean <- getMeans(spins_grads_num_full[,1:3], spins_grads_num_full$ROI)
+grad2plot <- spins_mean
+colnames(grad2plot) <- c(paste0("Gradient ", c(1:3)))
+grad4grp <- unique(spins_grads_num_full[,c(4,6)])
+rownames(grad4grp) <- grad4grp$ROI
+
+## organize data - network mean
+net_mean <- getMeans(spins_mean, grad4grp[rownames(spins_mean), "Network"])
+colnames(net_mean) <- c(paste0("Gradient ", c(1:3)))
+
+## get colors
+roi.col <- list()
+roi.col$oc <- recode(grad4grp$Network, !!!net.col.idx) %>% as.matrix
+rownames(roi.col$oc) <- grad4grp$ROI
+roi.col$gc <- as.matrix(net.col.idx)
+
+## data for arrows
+grad_fjxgrad <- data.frame(pls.res$TExPosition.Data$fj[,1:3], grad.dx[,c("ROI", "gradient")])
+colnames(grad_fjxgrad)[1:3] <- paste0("Dim", c(1:3))
+grad_fj_wide <- reshape(grad_fjxgrad, idvar = "ROI", timevar = "gradient", direction = "wide") %>% as.data.frame
+grad_fj_wide$Network <- grad4grp[grad_fj_wide$ROI, "Network"]
+rownames(grad_fj_wide) <- grad_fj_wide$ROI
+
+net_mean.fj <- getMeans(grad_fj_wide[,2:10], grad_fj_wide$Network)
+```
+
+3D plot of the gradients
+
+```{r}
+library(plotly)
+
+data4plotly <- data.frame(spins_mean, grad4grp[rownames(spins_mean),])
+color4plotly <- net.col.idx
+
+fig <- plot_ly(data4plotly, x = ~grad1, y = ~grad2, z = ~grad3, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
+fig <- fig %>% add_markers()
+fig <- fig %>% layout(scene = list(xaxis = list(title = "Gradient 1"),
+                      yaxis = list(title = "Gradient 2"),
+                      zaxis = list(title = "Gradient 3")))
+fig
+```
+
+
+```{r, echo = FALSE}
+### Gradients 1 & 2
+G1G2 <- createFactorMap(grad2plot,
+                axis1 = 1, axis2 = 2,
+                col.points = roi.col$oc[rownames(grad2plot),],
+                alpha.points = 0.1, 
+                col.background = "grey96",
+                col.axes = "grey30")
+
+G1G2.mean <- createFactorMap(net_mean,
+                             axis1 = 1, axis2 = 2,
+                             col.points = roi.col$gc[rownames(net_mean),],
+                             col.labels = roi.col$gc[rownames(net_mean),],
+                             cex = 4,
+                             text.cex = 2,
+                             alpha.points = 0.7)
+
+G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G1G2.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim2.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G1G2.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim3.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim3.grad2, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+```
+
+```{r, echo = FALSE}
+### Gradients 2 & 3
+G2G3 <- createFactorMap(grad2plot,
+                axis1 = 2, axis2 = 3,
+                col.points = roi.col$oc[rownames(grad2plot),],
+                alpha.points = 0.1,
+                col.background = "grey96",
+                col.axes = "grey30")
+
+G2G3.mean <- createFactorMap(net_mean,
+                             axis1 = 2, axis2 = 3,
+                             col.points = roi.col$gc[rownames(net_mean),],
+                             col.labels = roi.col$gc[rownames(net_mean),],
+                             cex = 4,
+                             text.cex = 2,
+                             alpha.points = 0.7)
+
+G2G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G2G3.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim2.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G2G3.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim3.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim3.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+```
+
+```{r, echo = FALSE}
+### Gradients 1 & 3
+G1G3 <- createFactorMap(grad2plot,
+                axis1 = 1, axis2 = 3,
+                col.points = roi.col$oc[rownames(grad2plot),],
+                alpha.points = 0.1, 
+                col.background = "grey96",
+                col.axes = "grey30")
+
+G1G3.mean <- createFactorMap(net_mean,
+                             axis1 = 1, axis2 = 3,
+                             col.points = roi.col$gc[rownames(net_mean),],
+                             col.labels = roi.col$gc[rownames(net_mean),],
+                             cex = 4,
+                             text.cex = 2,
+                             alpha.points = 0.7)
+
+G1G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G1G3.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim2.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim2.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+G1G3.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim3.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim3.grad3, 
+        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
+            "cm"), type = "closed", angle = 20), size = 1.2)
+```
+
+### Dimension 1
+
+```{r, echo = FALSE, fig.show='hold', out.width='50%'}
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim1 + G1G2.mean$zeMap_dots
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim1 + G2G3.mean$zeMap_dots
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim1 + G1G3.mean$zeMap_dots
+```
+
+### Dimension 2
+
+```{r, echo = FALSE, fig.show='hold', out.width='50%'}
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim2 + G1G2.mean$zeMap_dots
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim2 + G2G3.mean$zeMap_dots
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim2 + G1G3.mean$zeMap_dots
+```
+
+### Dimension 3
+
+```{r, echo = FALSE, fig.show='hold', out.width='50%'}
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim3 + G1G2.mean$zeMap_dots
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim3 + G2G3.mean$zeMap_dots
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim3 + G1G3.mean$zeMap_dots
+```
