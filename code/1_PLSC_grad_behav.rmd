@@ -5,6 +5,14 @@ date: "3/25/2022"
 output: html_document
 ---
 
+<style type="text/css">
+.main-container {
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
 Grabbing SPINS gradients
 
 ```{r, echo = FALSE}
@@ -14,6 +22,8 @@ library(ggsegGlasser)
 library(broom)
 library(TExPosition)
 library(PTCA4CATA)
+library(plotly)
+library(colorspace)
 ```
 
 ## Read in the SPINS big table
@@ -100,6 +110,20 @@ networks <- read_delim("../networks.txt",
   mutate(hex = rgb(RED, GREEN, BLUE, maxColorValue = 255)) %>%
   arrange(NETWORKKEY)
 
+networks$hex <- darken(networks$hex, 0.2)
+
+# oi <- networks$hex
+# swatchplot(
+#   "-40%" = lighten(oi, 0.4),
+#   "-20%" = lighten(oi, 0.2),
+#   "  0%" = oi,
+#   " 20%" =  darken(oi, 0.2),
+#   " 25%" =  darken(oi, 0.25),
+#   " 30%" =  darken(oi, 0.3),
+#   " 35%" =  darken(oi, 0.35),
+#   off = c(0, 0)
+# )
+
 networks
 ```
 
@@ -140,8 +164,8 @@ grad.dx$network.col <- recode(grad.dx$network, !!!net.col.idx)
 
 ## get different alpha for gradients
 grad.col.idx <- c("grad1" = "grey30",
-                    "grad2" = "grey60",
-                    "grad3" = "grey90")
+                  "grad2" = "grey60",
+                  "grad3" = "grey90")
 grad.dx$gradient.col <- recode(grad.dx$gradient, !!!grad.col.idx)
 ```
 
@@ -157,8 +181,19 @@ pls.res$TExPosition.Data$pdq$p[,3] <- pls.res$TExPosition.Data$pdq$p[,3]*-1
 pls.res$TExPosition.Data$pdq$q[,3] <- pls.res$TExPosition.Data$pdq$q[,3]*-1
 pls.res$TExPosition.Data$lx[,3] <- pls.res$TExPosition.Data$lx[,3]*-1
 pls.res$TExPosition.Data$ly[,3] <- pls.res$TExPosition.Data$ly[,3]*-1
+
+## Scree plot
 PlotScree(pls.res$TExPosition.Data$eigs)
+
+## Print singular values
+pls.res$TExPosition.Data$pdq$Dv
+## Print eigenvalues
+pls.res$TExPosition.Data$eigs
+## Compare the inertia to the largest possible inertia
+sum(cor(behav.dat, grad.dat)^2)
+sum(cor(behav.dat, grad.dat)^2)/(ncol(behav.dat)*ncol(grad.dat))
 ```
+Here, we show that the effect that PLSC decomposes is pretty small to begin with. The effect size of the correlation between the two tables is 92.40 which accounts for 0.0065 of the largest possible effect. 
 
 ## Results {.tabset}
 
@@ -177,8 +212,8 @@ for (check.dim in 1:3){
   lxly.all <- createFactorMap(lxly,
                               title = paste0("Latent variables"),
                               col.background = NULL,
-                             col.axes = "orchid4",
-                             alpha.axes = 0.5,
+                              col.axes = "orchid4",
+                              alpha.axes = 0.5,
                               col.points = diagnostic.col$oc,
                               alpha.points = 0.1)
   
@@ -192,7 +227,7 @@ for (check.dim in 1:3){
                             names.of.factors = c(paste0("Dim", check.dim, c(".Behavioural", ".gradient"))), alpha.ellipse = 0.1, line.size = 0.5)
   
   lxly.out[[check.dim]] <- lxly.all$zeMap_background + lxly.all$zeMap_dots + lxly.CI + lxly.avg$zeMap_dots + lxly.avg$zeMap_text + coord_cartesian()
-
+  
 }
 
 q.grad1 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad1"),]
@@ -214,21 +249,21 @@ dx.grad3 <- grad.dx$network[which(grad.dx$gradient == "grad3")]
 ```{r,include = FALSE}
 
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),1],
-               threshold = 0, 
-               color4bar = col.grad1[order(dx.grad1)], 
-               font.size = 0, main = "Loadings - gradient 1")
+                            threshold = 0, 
+                            color4bar = col.grad1[order(dx.grad1)], 
+                            font.size = 0, main = "Loadings - gradient 1")
 
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),1],
-               threshold = 0, 
-               color4bar = col.grad2[order(dx.grad2)], 
-               font.size = 0, main = "Loadings - gradient 2")
+                            threshold = 0, 
+                            color4bar = col.grad2[order(dx.grad2)], 
+                            font.size = 0, main = "Loadings - gradient 2")
 
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),1],
-               threshold = 0, 
-               color4bar = col.grad3[order(dx.grad3)], 
-               font.size = 0, main = "Loadings - gradient 3")
+                            threshold = 0, 
+                            color4bar = col.grad3[order(dx.grad3)], 
+                            font.size = 0, main = "Loadings - gradient 3")
 
 ```
 
@@ -248,19 +283,19 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
 
 ```{r, include = FALSE}
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),2],
-               threshold = 0, 
-               color4bar = col.grad1[order(dx.grad1)], 
-               font.size = 0, main = "Loadings - gradient 1")
+                            threshold = 0, 
+                            color4bar = col.grad1[order(dx.grad1)], 
+                            font.size = 0, main = "Loadings - gradient 1")
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),2],
-               threshold = 0, 
-               color4bar = col.grad2[order(dx.grad2)], 
-               font.size = 0, main = "Loadings - gradient 2")
+                            threshold = 0, 
+                            color4bar = col.grad2[order(dx.grad2)], 
+                            font.size = 0, main = "Loadings - gradient 2")
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),2],
-               threshold = 0, 
-               color4bar = col.grad3[order(dx.grad3)], 
-               font.size = 0, main = "Loadings - gradient 3")
+                            threshold = 0, 
+                            color4bar = col.grad3[order(dx.grad3)], 
+                            font.size = 0, main = "Loadings - gradient 3")
 
 ```
 
@@ -279,19 +314,19 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
 ```{r, include = FALSE}
 
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),3],
-               threshold = 0, 
-               color4bar = col.grad1[order(dx.grad1)], 
-               font.size = 0, main = "Loadings - gradient 1")
+                            threshold = 0, 
+                            color4bar = col.grad1[order(dx.grad1)], 
+                            font.size = 0, main = "Loadings - gradient 1")
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),3],
-               threshold = 0, 
-               color4bar = col.grad2[order(dx.grad2)], 
-               font.size = 0, main = "Loadings - gradient 2")
+                            threshold = 0, 
+                            color4bar = col.grad2[order(dx.grad2)], 
+                            font.size = 0, main = "Loadings - gradient 2")
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),3],
-               threshold = 0, 
-               color4bar = col.grad3[order(dx.grad3)], 
-               font.size = 0, main = "Loadings - gradient 3")
+                            threshold = 0, 
+                            color4bar = col.grad3[order(dx.grad3)], 
+                            font.size = 0, main = "Loadings - gradient 3")
 
 ```
 
@@ -322,7 +357,7 @@ gradient_raw_brain <- pq_for_plot %>%
   group_by(gradient) %>%
   ggplot() +
   geom_brain(mapping = aes(fill = raw),
-        atlas = glasser) +
+             atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
   scale_fill_distiller(palette = "BrBG", limits = c(-1,1), values = c(0, 0.4, 0.5, 0.6, 1)) +
   ggtitle("Gradients")
@@ -338,10 +373,20 @@ pq_for_plot %>%
   group_by(gradient) %>%
   ggplot() +
   geom_brain(mapping = aes(fill = q1),
-        atlas = glasser) +
+             atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
   scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
-  ggtitle("PLSC: Dimension 1")
+  ggtitle("PLSC: Dimension 1") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+ggplot()
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
+               threshold = 0, 
+               color4bar = behav.dx$type.col, 
+               main = "Loadings - behavioural")
 ```
 
 ### Dimension 2
@@ -354,10 +399,20 @@ pq_for_plot %>%
   group_by(gradient) %>%
   ggplot() +
   geom_brain(mapping = aes(fill = q2),
-        atlas = glasser) +
+             atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
   scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
-  ggtitle("PLSC: Dimension 2")
+  ggtitle("PLSC: Dimension 2")+ 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+ggplot()
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
+               threshold = 0, 
+               color4bar = behav.dx$type.col, 
+               main = "Loadings - behavioural")
 ```
 
 ### Dimension 3
@@ -370,10 +425,20 @@ pq_for_plot %>%
   group_by(gradient) %>%
   ggplot() +
   geom_brain(mapping = aes(fill = q3),
-        atlas = glasser) +
+             atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
   scale_fill_distiller(palette = "RdBu", limits = c(-0.1,0.1), values = c(0, 0.35, 0.5, 0.65, 1)) +
-  ggtitle("PLSC: Dimension 3")
+  ggtitle("PLSC: Dimension 3")+ 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+ggplot()
+
+PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
+               threshold = 0, 
+               color4bar = behav.dx$type.col, 
+               main = "Loadings - behavioural")
 ```
 
 ## Fancy figures {.tabset}
@@ -390,143 +455,233 @@ rownames(grad4grp) <- grad4grp$ROI
 net_mean <- getMeans(spins_mean, grad4grp[rownames(spins_mean), "Network"])
 colnames(net_mean) <- c(paste0("Gradient ", c(1:3)))
 
+## organize data - ROI & group average
+spins_grad_everything <- merge(spins_grads_num_full, sub.dx, by.x = "Subject", by.y = 0)
+spins_mean_bygrp<- spins_grad_everything %>% 
+  group_by(ROI, Network,diagnostic_group) %>% 
+  summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame %>%
+  reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+grad2plot2 <- spins_mean_bygrp[,c(3:8)]
+grad4grp2 <- unique(spins_mean_bygrp[,c(1:2)]) %>% as.data.frame
+rownames(grad4grp2) <- grad4grp2$ROI
+
+## organize data - network mean by groups
+net_mean_bygrp <- spins_mean_bygrp %>%
+  group_by(Network) %>%
+  summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame
+rownames(net_mean_bygrp) <- net_mean_bygrp$Network
+
 ## get colors
 roi.col <- list()
 roi.col$oc <- recode(grad4grp$Network, !!!net.col.idx) %>% as.matrix
 rownames(roi.col$oc) <- grad4grp$ROI
 roi.col$gc <- as.matrix(net.col.idx)
 
-## data for arrows
-grad_fjxgrad <- data.frame(pls.res$TExPosition.Data$fj[,1:3], grad.dx[,c("ROI", "gradient")])
+## data for arrows with q
+grad_fjxgrad <- data.frame(pls.res$TExPosition.Data$pdq$q[,1:3]*2.5, grad.dx[,c("ROI", "gradient")])
 colnames(grad_fjxgrad)[1:3] <- paste0("Dim", c(1:3))
 grad_fj_wide <- reshape(grad_fjxgrad, idvar = "ROI", timevar = "gradient", direction = "wide") %>% as.data.frame
 grad_fj_wide$Network <- grad4grp[grad_fj_wide$ROI, "Network"]
 rownames(grad_fj_wide) <- grad_fj_wide$ROI
 
 net_mean.fj <- getMeans(grad_fj_wide[,2:10], grad_fj_wide$Network)
+
+## color of arrows
+arrow.col <- darken(roi.col$gc[rownames(net_mean),], 0.4)
+names(arrow.col) <- rownames(net_mean)
 ```
 
 3D plot of the gradients
 
-```{r}
-library(plotly)
-
+```{r, echo = FALSE}
 data4plotly <- data.frame(spins_mean, grad4grp[rownames(spins_mean),])
+data4plotly.case <- data.frame(spins_mean_bygrp[,3:5], grad4grp2[spins_mean_bygrp$ROI,])
+data4plotly.control <- data.frame(spins_mean_bygrp[,6:8], grad4grp2[spins_mean_bygrp$ROI,])
 color4plotly <- net.col.idx
 
+## overall average
 fig <- plot_ly(data4plotly, x = ~grad1, y = ~grad2, z = ~grad3, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
 fig <- fig %>% add_markers()
-fig <- fig %>% layout(scene = list(xaxis = list(title = "Gradient 1"),
-                      yaxis = list(title = "Gradient 2"),
-                      zaxis = list(title = "Gradient 3")))
+fig <- fig %>% layout(title = "Overall: mean gradients by ROIs",
+                      scene = list(xaxis = list(title = "Gradient 1"),
+                                   yaxis = list(title = "Gradient 2"),
+                                   zaxis = list(title = "Gradient 3")))
+## case
+fig.case <- plot_ly(data4plotly.case, x = ~grad1.case, y = ~grad2.case, z = ~grad3.case, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
+fig.case <- fig.case %>% add_markers()
+fig.case <- fig.case %>% layout(title = "Case: mean gradients by ROIs",
+                                scene = list(xaxis = list(title = "Gradient 1"),
+                                             yaxis = list(title = "Gradient 2"),
+                                             zaxis = list(title = "Gradient 3")))
+
+## control
+fig.control <- plot_ly(data4plotly.control, x = ~grad1.control, y = ~grad2.control, z = ~grad3.control, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
+fig.control <- fig.control %>% add_markers()
+fig.control <- fig.control %>% layout(title = "Control: mean gradients by ROIs",
+                                      scene = list(xaxis = list(title = "Gradient 1"),
+                                                   yaxis = list(title = "Gradient 2"),
+                                                   zaxis = list(title = "Gradient 3")))
+
+## print 3
 fig
+fig.case
+fig.control
+
 ```
 
 
 ```{r, echo = FALSE}
 ### Gradients 1 & 2
 G1G2 <- createFactorMap(grad2plot,
-                axis1 = 1, axis2 = 2,
-                col.points = roi.col$oc[rownames(grad2plot),],
-                alpha.points = 0.1, 
-                col.background = "grey96",
-                col.axes = "grey30")
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
 
 G1G2.mean <- createFactorMap(net_mean,
                              axis1 = 1, axis2 = 2,
                              col.points = roi.col$gc[rownames(net_mean),],
                              col.labels = roi.col$gc[rownames(net_mean),],
                              cex = 4,
-                             text.cex = 2,
+                             text.cex = 3,
                              alpha.points = 0.7)
 
-G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
-G1G2.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim2.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
-G1G2.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim3.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim3.grad2, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 1, axis2 = 2,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2,
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
+G1G2.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim2.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2,
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
+G1G2.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim3.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim3.grad2,
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
+
+G1G2.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mean_bygrp$grad2.control, xend = net_mean_bygrp$grad1.case, yend = net_mean_bygrp$grad2.case, 
+                        color = "black", alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
+
 ```
 
 ```{r, echo = FALSE}
 ### Gradients 2 & 3
 G2G3 <- createFactorMap(grad2plot,
-                axis1 = 2, axis2 = 3,
-                col.points = roi.col$oc[rownames(grad2plot),],
-                alpha.points = 0.1,
-                col.background = "grey96",
-                col.axes = "grey30")
+                        axis1 = 2, axis2 = 3,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        alpha.points = 0.1,
+                        col.background = "grey96",
+                        col.axes = "grey30")
 
 G2G3.mean <- createFactorMap(net_mean,
                              axis1 = 2, axis2 = 3,
                              col.points = roi.col$gc[rownames(net_mean),],
                              col.labels = roi.col$gc[rownames(net_mean),],
                              cex = 4,
-                             text.cex = 2,
+                             text.cex = 3,
                              alpha.points = 0.7)
 
+G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 2, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
 G2G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 G2G3.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim2.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 G2G3.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim3.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim3.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
+
+G2G3.arrows <- annotate("segment", x = net_mean_bygrp$grad2.control, y = net_mean_bygrp$grad3.control, xend = net_mean_bygrp$grad2.case, yend = net_mean_bygrp$grad3.case, 
+                        color = "black", alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
 ```
 
 ```{r, echo = FALSE}
 ### Gradients 1 & 3
 G1G3 <- createFactorMap(grad2plot,
-                axis1 = 1, axis2 = 3,
-                col.points = roi.col$oc[rownames(grad2plot),],
-                alpha.points = 0.1, 
-                col.background = "grey96",
-                col.axes = "grey30")
+                        axis1 = 1, axis2 = 3,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
 
 G1G3.mean <- createFactorMap(net_mean,
                              axis1 = 1, axis2 = 3,
                              col.points = roi.col$gc[rownames(net_mean),],
                              col.labels = roi.col$gc[rownames(net_mean),],
                              cex = 4,
-                             text.cex = 2,
+                             text.cex = 3,
                              alpha.points = 0.7)
 
+G1G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 1, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+
 G1G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 G1G3.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim2.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim2.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 G1G3.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim3.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim3.grad3, 
-        color = "black", alpha = 0.5, arrow = arrow(length = unit(0.3, 
-            "cm"), type = "closed", angle = 20), size = 1.2)
+                             color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
+G1G3.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mean_bygrp$grad3.control, xend = net_mean_bygrp$grad1.case, yend = net_mean_bygrp$grad3.case, 
+                        color = "black", alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
 ```
+
+### Group difference
+
+```{r, echo = FALSE, fig.show='hold', out.width='50%'}
+G1G2.mean.control$zeMap + G1G2.arrows + ggtitle("From control to case")
+G2G3.mean.control$zeMap + G2G3.arrows + ggtitle("From control to case")
+G1G3.mean.control$zeMap + G1G3.arrows + ggtitle("From control to case")
+```
+
 
 ### Dimension 1
 
+We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
+
 ```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim1 + G1G2.mean$zeMap_dots
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim1 + G2G3.mean$zeMap_dots
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim1 + G1G3.mean$zeMap_dots
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim1
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim1
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim1
 ```
 
 ### Dimension 2
 
+We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
+
 ```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim2 + G1G2.mean$zeMap_dots
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim2 + G2G3.mean$zeMap_dots
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim2 + G1G3.mean$zeMap_dots
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim2
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim2
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim2
 ```
 
 ### Dimension 3
 
+We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
+
 ```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.arrows.dim3 + G1G2.mean$zeMap_dots
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.arrows.dim3 + G2G3.mean$zeMap_dots
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.arrows.dim3 + G1G3.mean$zeMap_dots
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim3
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim3
+G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim3
 ```
