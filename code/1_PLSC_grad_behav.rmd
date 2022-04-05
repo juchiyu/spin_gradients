@@ -10,8 +10,8 @@ Grabbing SPINS gradients
 ```{r, echo = FALSE}
 library(tidyverse)
 library(ggseg)
-library(ggsegGlasser)
-library(broom)
+# library(ggsegGlasser)
+# library(broom)
 library(TExPosition)
 library(PTCA4CATA)
 ```
