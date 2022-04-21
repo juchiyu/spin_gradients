@@ -74,6 +74,15 @@ spins_behav_num <- lol_spins_behav %>%
 colnames(spins_behav_num)
 rownames(spins_behav_num) <- spins_dx$subject
 
+## participants' variables of which the effects should be regressed out
+
+var2regout <- lol_spins_behav %>%
+  filter(diagnostic_group=="case") %>%
+  select(demo_sex, demo_age_study_entry, `fd_mean_task-rest`) %>% data.frame
+rownames(var2regout) <- spins_dx$subject
+var2regout$demo_sex_num <- as.numeric(as.factor(var2regout$demo_sex))-1
+var2regout_num <- var2regout[,-1]
+
 ```
 
 ## Check subject overlap
@@ -97,8 +106,18 @@ spins_grads_wide_org <- spins_grads_wide[,-1]
 rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
 grad.dat <- spins_grads_wide_org[kept.sub,]
 
+## variables to regress out
+regout.dat <- var2regout_num[kept.sub,]
+
 rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num, spins_grads_num)
 
+```
+## Regress out the effects
+
+```{r}
+behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_task.rest)$residual)
+
+grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_task.rest)$residual)
 ```
 
 ## grab some network colours
@@ -172,12 +191,17 @@ grad.col.idx <- c("grad1" = "grey30",
                   "grad2" = "grey60",
                   "grad3" = "grey90")
 grad.dx$gradient.col <- recode(grad.dx$gradient, !!!grad.col.idx)
+
+## for heatmap
+col.heat <- colorRampPalette(c("red", "white", "blue"))(256)
+
 ```
 
 ## Run PLS-C
 
 ```{r}
-pls.res <- tepPLS(behav.dat, grad.dat, make_design_nominal = TRUE, graphs = FALSE)
+pls.res <- tepPLS(behav.reg, grad.reg, make_design_nominal = TRUE, graphs = FALSE)
+pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = TRUE, scale2 = TRUE, nf2keep = 4)
 
 # ## swith direction for dimension 3
 # pls.res$TExPosition.Data$fi[,3] <- pls.res$TExPosition.Data$fi[,3]*-1
@@ -235,15 +259,18 @@ for (check.dim in 1:4){
   
 }
 
-q.grad1 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad1"),]
+q.grad1 <- pls.res$TExPosition.Data$fj[which(grad.dx$gradient == "grad1"),]
+q.sig.grad1 <- pls.boot$bootRatiosSignificant.j[which(grad.dx$gradient == "grad1"),]
 col.grad1 <- grad.dx$network.col[which(grad.dx$gradient == "grad1")]
 dx.grad1 <- grad.dx$network[which(grad.dx$gradient == "grad1")]
 
-q.grad2 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad2"),]
+q.grad2 <- pls.res$TExPosition.Data$fj[which(grad.dx$gradient == "grad2"),]
+q.sig.grad2 <- pls.boot$bootRatiosSignificant.j[which(grad.dx$gradient == "grad2"),]
 col.grad2 <- grad.dx$network.col[which(grad.dx$gradient == "grad2")]
 dx.grad2 <- grad.dx$network[which(grad.dx$gradient == "grad2")]
 
-q.grad3 <- pls.res$TExPosition.Data$pdq$q[which(grad.dx$gradient == "grad3"),]
+q.grad3 <- pls.res$TExPosition.Data$fj[which(grad.dx$gradient == "grad3"),]
+q.sig.grad3 <- pls.boot$bootRatiosSignificant.j[which(grad.dx$gradient == "grad3"),]
 col.grad3 <- grad.dx$network.col[which(grad.dx$gradient == "grad3")]
 dx.grad3 <- grad.dx$network[which(grad.dx$gradient == "grad3")]
 
@@ -252,23 +279,23 @@ dx.grad3 <- grad.dx$network[which(grad.dx$gradient == "grad3")]
 ### Dimension 1
 
 ```{r,include = FALSE}
-
+col4grad1 <- col.grad1[order(dx.grad1)]
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),1],
                             threshold = 0, 
-                            color4bar = col.grad1[order(dx.grad1)], 
-                            font.size = 0, main = "Loadings - gradient 1")
+                            color4bar = ifelse(q.sig.grad1[,1] == TRUE, col4grad1, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 1")
 
-
+col4grad2 <- col.grad2[order(dx.grad2)]
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),1],
                             threshold = 0, 
-                            color4bar = col.grad2[order(dx.grad2)], 
-                            font.size = 0, main = "Loadings - gradient 2")
+                            color4bar = ifelse(q.sig.grad2[,1] == TRUE, col4grad2, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 2")
 
-
+col4grad3 <- col.grad3[order(dx.grad3)]
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),1],
                             threshold = 0, 
-                            color4bar = col.grad3[order(dx.grad3)], 
-                            font.size = 0, main = "Loadings - gradient 3")
+                            color4bar = ifelse(q.sig.grad3[,1] == TRUE, col4grad3, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 3")
 
 ```
 
@@ -278,10 +305,12 @@ lxly.out[[1]]
 
 gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,1],
                threshold = 0, 
-               color4bar = behav.dx$type.col, 
-               horizontal = FALSE, main = "Loadings - behavioural")
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,1] == TRUE, behav.dx$type.col, "grey90"),
+               horizontal = FALSE, main = "Scores - behavioural")
+
+cor.heat <- pls.res$TExPosition.Data$X %>% heatmap(col = col.heat)
 ```
 
 ### Dimension 2
@@ -289,18 +318,18 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
 ```{r, include = FALSE}
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),2],
                             threshold = 0, 
-                            color4bar = col.grad1[order(dx.grad1)], 
-                            font.size = 0, main = "Loadings - gradient 1")
+                            color4bar = ifelse(q.sig.grad1[,2] == TRUE, col4grad1, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 1")
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),2],
                             threshold = 0, 
-                            color4bar = col.grad2[order(dx.grad2)], 
-                            font.size = 0, main = "Loadings - gradient 2")
+                            color4bar = ifelse(q.sig.grad2[,2] == TRUE, col4grad2, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 2")
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),2],
                             threshold = 0, 
-                            color4bar = col.grad3[order(dx.grad3)], 
-                            font.size = 0, main = "Loadings - gradient 3")
+                            color4bar = ifelse(q.sig.grad3[,2] == TRUE, col4grad3, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 3")
 
 ```
 
@@ -310,8 +339,14 @@ lxly.out[[2]]
 
 gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
-               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,2],
+               threshold = 0, color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,2] == TRUE, behav.dx$type.col, "grey90"), 
+               horizontal = FALSE, main = "Scores - behavioural")
+
+dim1.est <- pls.res$TExPosition.Data$pdq$Dv[1]*as.matrix(pls.res$TExPosition.Data$pdq$p[,1], ncol = 1) %*% t(as.matrix(pls.res$TExPosition.Data$pdq$q[,1], ncol = 1))
+
+cor.heat.res1 <- (pls.res$TExPosition.Data$X - dim1.est) %>% heatmap(col = col.heat)
+
 ```
 
 ### Dimension 3
@@ -320,29 +355,35 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
 
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),3],
                             threshold = 0, 
-                            color4bar = col.grad1[order(dx.grad1)], 
-                            font.size = 0, main = "Loadings - gradient 1")
+                            color4bar = ifelse(q.sig.grad1[,3] == TRUE, col4grad1, "grey90"),
+                            font.size = 0, main = "Scores - gradient 1")
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),3],
                             threshold = 0, 
-                            color4bar = col.grad2[order(dx.grad2)], 
-                            font.size = 0, main = "Loadings - gradient 2")
+                            color4bar = ifelse(q.sig.grad1[,3] == TRUE, col4grad1, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 2")
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),3],
                             threshold = 0, 
-                            color4bar = col.grad3[order(dx.grad3)], 
-                            font.size = 0, main = "Loadings - gradient 3")
+                            color4bar = ifelse(q.sig.grad1[,3] == TRUE, col4grad1, "grey90"), 
+                            font.size = 0, main = "Scores - gradient 3")
 
 ```
-
 
 ```{r, fig.show = 'hold', out.width = '50%'}
 lxly.out[[3]]
 
 gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
-               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,3],
+               threshold = 0, color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,3] == TRUE, behav.dx$type.col, "grey90"),
+               horizontal = FALSE, main = "Scores - behavioural")
+
+dim2.est <- (as.matrix(pls.res$TExPosition.Data$pdq$p[,1:2]) %*% pls.res$TExPosition.Data$pdq$Dd[1:2,1:2] %*% t(as.matrix(pls.res$TExPosition.Data$pdq$q[,1:2])))
+
+
+cor.heat.res2 <- heatmap(pls.res$TExPosition.Data$X - dim2.est, col = col.heat)
+
 ```
 
 ### Dimension 4
@@ -351,18 +392,18 @@ PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
 
 bar.grad1 <- PrettyBarPlot2(q.grad1[order(dx.grad1),4],
                             threshold = 0, 
-                            color4bar = col.grad1[order(dx.grad1)], 
-                            font.size = 0, main = "Loadings - gradient 1")
+                            color4bar = ifelse(q.sig.grad1[,4] == TRUE, col4grad1, "grey90"),
+                            font.size = 0, main = "Scores - gradient 1")
 
 bar.grad2 <- PrettyBarPlot2(q.grad2[order(dx.grad2),4],
                             threshold = 0, 
-                            color4bar = col.grad2[order(dx.grad2)], 
-                            font.size = 0, main = "Loadings - gradient 2")
+                            color4bar = ifelse(q.sig.grad2[,4] == TRUE, col4grad2, "grey90"),
+                            font.size = 0, main = "Scores - gradient 2")
 
 bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),4],
                             threshold = 0, 
-                            color4bar = col.grad3[order(dx.grad3)], 
-                            font.size = 0, main = "Loadings - gradient 3")
+                            color4bar = ifelse(q.sig.grad3[,4] == TRUE, col4grad1, "grey90"),
+                            font.size = 0, main = "Scores - gradient 3")
 
 ```
 
@@ -372,16 +413,27 @@ lxly.out[[4]]
 
 gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,4],
-               threshold = 0, color4bar = behav.dx$type.col, horizontal = FALSE, main = "Loadings - behavioural")
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
+               threshold = 0, color4bar =ifelse(pls.boot$bootRatiosSignificant.i[,4] == TRUE, behav.dx$type.col, "grey90"), horizontal = FALSE, main = "Scores - behavioural")
+
+dim3.est <- (as.matrix(pls.res$TExPosition.Data$pdq$p[,1:3]) %*% pls.res$TExPosition.Data$pdq$Dd[1:3,1:3] %*% t(as.matrix(pls.res$TExPosition.Data$pdq$q[,1:3])))
+
+
+cor.heat.res3 <- heatmap(pls.res$TExPosition.Data$X - dim3.est, col = col.heat)
+
 ```
 
 ## Back into the brain {.tabset} 
 
 ```{r, include = FALSE}
 ## reorganize data frame
-full.pq <- data.frame(grad.dx[,1:4], pls.res$TExPosition.Data$pdq$q[,1:4], colMeans(grad.dat))
+full.pq <- data.frame(grad.dx[,1:4], pls.res$TExPosition.Data$fj[,1:4], colMeans(grad.dat))
 colnames(full.pq)[5:9] <- c(paste0("q", c(1:4)), "raw")
+
+full.pq.sig <- full.pq[,5:8]
+full.pq.sig[pls.boot$bootRatiosSignificant.j[,1:4] == FALSE] <- 0
+full.pq[,10:13] <- full.pq.sig
+colnames(full.pq)[10:13] <- c(paste0("qsig", c(1:4)))
 
 pq_for_plot <- full.pq %>% 
   mutate(roi = str_remove(ROI, "_ROI"),
@@ -408,10 +460,10 @@ pq_for_plot %>%
   as.data.frame() %>%
   group_by(gradient) %>%
   ggplot() +
-  geom_brain(mapping = aes(fill = q1),
+  geom_brain(mapping = aes(fill = qsig1),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
-  scale_fill_distiller(palette = "RdBu", limits = c(-0.11,0.11), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.6,0.6), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle("PLSC: Dimension 1") + 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
@@ -419,10 +471,10 @@ pq_for_plot %>%
 
 ggplot()
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,1],
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,1],
                threshold = 0, 
-               color4bar = behav.dx$type.col, 
-               main = "Loadings - behavioural")
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,1] == TRUE, behav.dx$type.col, "grey90"),
+               main = "Scores - behavioural")
 ```
 
 ### Dimension 2
@@ -434,10 +486,10 @@ pq_for_plot %>%
   as.data.frame() %>%
   group_by(gradient) %>%
   ggplot() +
-  geom_brain(mapping = aes(fill = q2),
+  geom_brain(mapping = aes(fill = qsig2),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
-  scale_fill_distiller(palette = "RdBu", limits = c(-0.11,0.11), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.6,0.6), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle("PLSC: Dimension 2")+ 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
@@ -445,10 +497,10 @@ pq_for_plot %>%
 
 ggplot()
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,2],
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,2],
                threshold = 0, 
-               color4bar = behav.dx$type.col, 
-               main = "Loadings - behavioural")
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,2] == TRUE, behav.dx$type.col, "grey90"),
+               main = "Scores - behavioural")
 ```
 
 ### Dimension 3
@@ -460,10 +512,10 @@ pq_for_plot %>%
   as.data.frame() %>%
   group_by(gradient) %>%
   ggplot() +
-  geom_brain(mapping = aes(fill = q3),
+  geom_brain(mapping = aes(fill = qsig3),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
-  scale_fill_distiller(palette = "RdBu", limits = c(-0.11,0.11), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.6,0.6), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle("PLSC: Dimension 3")+ 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
@@ -471,10 +523,10 @@ pq_for_plot %>%
 
 ggplot()
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,3],
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,3],
                threshold = 0, 
-               color4bar = behav.dx$type.col, 
-               main = "Loadings - behavioural")
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,3] == TRUE, behav.dx$type.col, "grey90"),
+               main = "Scores - behavioural")
 ```
 
 ### Dimension 4
@@ -486,10 +538,10 @@ pq_for_plot %>%
   as.data.frame() %>%
   group_by(gradient) %>%
   ggplot() +
-  geom_brain(mapping = aes(fill = q4),
+  geom_brain(mapping = aes(fill = qsig4),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
-  scale_fill_distiller(palette = "RdBu", limits = c(-0.11,0.11), values = c(0, 0.35, 0.5, 0.65, 1)) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-0.6,0.6), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle("PLSC: Dimension 4")+ 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
@@ -497,10 +549,10 @@ pq_for_plot %>%
 
 ggplot()
 
-PrettyBarPlot2(pls.res$TExPosition.Data$pdq$p[,4],
+PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
                threshold = 0, 
-               color4bar = behav.dx$type.col, 
-               main = "Loadings - behavioural")
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,4] == TRUE, behav.dx$type.col, "grey90"), 
+               main = "Scores - behavioural")
 ```
 
 ## Fancy figures {.tabset}
