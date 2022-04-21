@@ -74,8 +74,8 @@ spins_behav_num <- lol_spins_behav %>%
          scog_tasit3_lie, scog_tasit3_sar, np_domain_tscore_att_vigilance,
          np_domain_tscore_process_speed, np_domain_tscore_work_mem,
          np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
-         np_domain_tscore_reasoning_ps, bsfs_sec2_total, bsfs_sec3_total,
-         bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+         np_domain_tscore_reasoning_ps, 
+         #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
          fd_mean_rest
   ) %>% data.frame
 colnames(spins_behav_num)
@@ -84,7 +84,7 @@ rownames(spins_behav_num) <- lol_spins_behav$subject
 ## participants' variables of which the effects should be regressed out
 
 var2regout <- lol_spins_behav %>%
-  select(demo_sex, demo_age_study_entry, `fd_mean_rest`) %>% data.frame
+  select(demo_sex, demo_age_study_entry, `fd_mean_rest`, scanner) %>% data.frame
 rownames(var2regout) <- lol_spins_behav$subject
 var2regout$demo_sex_num <- as.numeric(as.factor(var2regout$demo_sex))-1
 var2regout_num <- var2regout[,-1]
@@ -107,7 +107,7 @@ kept.sub <- kept.sub[complete.cases(spins_behav_num[kept.sub,])] # 389
 
 ## grab the matching data
 
-behav.dat <- spins_behav_num[kept.sub,c(1:20)]
+behav.dat <- spins_behav_num[kept.sub,c(1:15)]
 spins_grads_wide_org <- spins_grads_wide[,-1]
 rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
 grad.dat <- spins_grads_wide_org[kept.sub,]
@@ -119,14 +119,55 @@ rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num, spi
 
 ```
 
+## Demographics
+
+```{r}
+lol_demo <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv') %>%
+  filter(exclude_MRI==FALSE, 
+         exclude_meanFD==FALSE, 
+         exclude_earlyTerm==FALSE)
+names(lol_demo)
+lol_demo$subject <- sub("SPN01_", "sub-", lol_demo$record_id) %>% sub("_", "", .)
+
+spins_demo <- lol_demo %>% 
+  select(demo_sex, demo_age_study_entry, diagnostic_group, scog_rmet_total, scog_er40_total, scog_mean_ea, scog_tasit1_total,
+         scog_tasit2_total, scog_tasit3_total,np_composite_tscore, np_domain_tscore_att_vigilance,
+         np_domain_tscore_process_speed, np_domain_tscore_work_mem,
+         np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
+         np_domain_tscore_reasoning_ps, 
+         #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+         fd_mean_rest
+  ) %>% data.frame
+colnames(spins_demo)
+rownames(spins_demo) <- lol_demo$subject
+
+spins_demo_fin <- spins_demo[kept.sub,]
+
+spins_demo_fin %>%
+  group_by(diagnostic_group) %>%
+  summarise_if(is.numeric, mean, na.rm = TRUE) %>% t
+spins_demo_fin %>%
+  group_by(diagnostic_group) %>%
+  summarize_if(is.numeric, sd, na.rm = TRUE) %>% t
+
+cbind(table(spins_demo_fin$diagnostic_group, spins_demo_fin$demo_sex), table(spins_demo_fin$diagnostic_group))
+```
+
+
 ## Regress out the effects
 
 ```{r}
 table(regout.dat$demo_sex_num)
 
-behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
 
-grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+
+grad.reg2plot <- apply(grad.dat, 2, function(x){
+  model <- lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)
+  return(model$residual + model$coefficient[1])
+} )
 ```
 
 ## grab some network colours
@@ -586,11 +627,22 @@ PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
 ## Fancy figures {.tabset}
 
 ```{r, include = FALSE}
+grad.reg.long <- data.frame(t(grad.reg2plot), grad.dx[,1:3])
+grad.reg.wide <- grad.reg.long %>% pivot_longer(cols = "sub.CMH0001":"sub.ZHP0171",
+             names_to = "Subject",
+             names_prefix = "",
+             values_to = "value") 
+grad.reg.wide4plot <- grad.reg.wide %>% pivot_wider(names_from = "gradient",
+                                names_prefix = "",
+                                values_from = "value",) %>% data.frame
+grad.reg.wide4plot$Subject <- sub("sub.", "sub-", grad.reg.wide4plot$Subject)
+names(grad.reg.wide4plot)[2] <- "Network"
+
 ## organize data - ROI average
-spins_mean <- getMeans(spins_grads_num_full[,1:3], spins_grads_num_full$ROI)
+spins_mean <- getMeans(grad.reg.wide4plot[,4:6], grad.reg.wide4plot$ROI)
 grad2plot <- spins_mean
 colnames(grad2plot) <- c(paste0("Gradient ", c(1:3)))
-grad4grp <- unique(spins_grads_num_full[,c(4,6)])
+grad4grp <- unique(grad.reg.wide4plot[,c(1,2)]) %>% data.frame
 rownames(grad4grp) <- grad4grp$ROI
 
 ## organize data - network mean
@@ -598,7 +650,7 @@ net_mean <- getMeans(spins_mean, grad4grp[rownames(spins_mean), "Network"])
 colnames(net_mean) <- c(paste0("Gradient ", c(1:3)))
 
 ## organize data - ROI & group average
-spins_grad_everything <- merge(spins_grads_num_full, sub.dx, by.x = "Subject", by.y = 0)
+spins_grad_everything <- merge(grad.reg.wide4plot, sub.dx, by.x = "Subject", by.y = 0)
 spins_mean_bygrp<- spins_grad_everything %>% 
   group_by(ROI, Network,diagnostic_group) %>% 
   summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
@@ -700,6 +752,15 @@ G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
                                      alpha.points = 0.7,
                                      col.background = "grey96",
                                      col.axes = "grey30")
+G1G2.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
+                                     axis1 = 1, axis2 = 2,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
 
 G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2,
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -709,7 +770,7 @@ G1G2.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 
 G1G2.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mean_bygrp$grad2.control, xend = net_mean_bygrp$grad1.case, yend = net_mean_bygrp$grad2.case, 
-                        color = "black", alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
+                        color = arrow.col, alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
 
 ```
 
@@ -731,6 +792,16 @@ G2G3.mean <- createFactorMap(net_mean,
                              alpha.points = 0.7)
 
 G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 2, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+G2G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
                                      axis1 = 2, axis2 = 3,
                                      col.points = roi.col$gc[net_mean_bygrp$Network,],
                                      col.labels = roi.col$gc[net_mean_bygrp$Network,],
@@ -778,6 +849,15 @@ G1G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
                                      col.background = "grey96",
                                      col.axes = "grey30")
 
+G1G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
+                                     axis1 = 1, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
 
 G1G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -795,6 +875,18 @@ G1G3.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mea
 G1G2.mean.control$zeMap + G1G2.arrows + ggtitle("From control to case")
 G2G3.mean.control$zeMap + G2G3.arrows + ggtitle("From control to case")
 G1G3.mean.control$zeMap + G1G3.arrows + ggtitle("From control to case")
+# G1G2.mean.control$zeMap_background + G1G2.mean.case$zeMap_text + G1G2.arrows + ggtitle("From control to case")
+G1G2.mean.control$zeMap + ggtitle("Control")
+G1G2.mean.case$zeMap + ggtitle("Case")
+# 
+# G2G3.mean.control$zeMap_background + G2G3.mean.case$zeMap_text + G2G3.arrows + ggtitle("From control to case")
+# G2G3.mean.control$zeMap + ggtitle("Control")
+# G2G3.mean.case$zeMap + ggtitle("Case")
+# 
+# G1G3.mean.control$zeMap_background + G1G3.mean.case$zeMap_text + G1G3.arrows + ggtitle("From control to case")
+# G1G3.mean.control$zeMap + ggtitle("Control")
+# G1G3.mean.case$zeMap + ggtitle("Case")
+
 ```
 
 

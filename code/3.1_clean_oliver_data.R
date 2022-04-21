@@ -8,9 +8,9 @@ spins_RS_fd <- read.csv(file="data/SPINS_fd_by_run_12-14-2020.csv",stringsAsFact
 early_term <- read.csv(file="data/spins_termination_info_11-20-2020.csv", header=T, stringsAsFactors=F)
 
 select_behav <- lol_spins_behav[,c("record_id","scanner","diagnostic_group","demo_sex","demo_age_study_entry",
-                    "scog_rmet_total","scog_er40_total","scog_mean_ea","scog_tasit1_total","scog_tasit2_sinc",
-                    "scog_tasit2_simpsar","scog_tasit2_parsar","scog_tasit3_lie","scog_tasit3_sar",
-                    "np_domain_tscore_process_speed","np_domain_tscore_att_vigilance","np_domain_tscore_work_mem",
+                    "scog_rmet_total","scog_er40_total","scog_mean_ea","scog_tasit1_total","scog_tasit2_total","scog_tasit2_sinc",
+                    "scog_tasit2_simpsar","scog_tasit2_parsar","scog_tasit3_total","scog_tasit3_lie","scog_tasit3_sar",
+                    "np_composite_tscore","np_domain_tscore_process_speed","np_domain_tscore_att_vigilance","np_domain_tscore_work_mem",
                     "np_domain_tscore_verbal_learning","np_domain_tscore_visual_learning","np_domain_tscore_reasoning_ps",
                     "bsfs_sec1_total", "bsfs_sec2_total", "bsfs_sec3_total", "bsfs_sec4_total", "bsfs_sec5_total", 
                     "bsfs_sec6_total", "bsfs_sec7_y_total_7a", "bsfs_sec7_n_total_7b", 
@@ -49,4 +49,4 @@ early_term_exc <- c("SPN01_CMP_0178","SPN01_CMP_0183","SPN01_CMP_0202","SPN01_ZH
 select_behav$exclude_earlyTerm <- (select_behav$record_id %in% early_term_exc)
 
 ## save to .csv file
-write.csv(select_behav, file = "data/spins_lolivers_subject_info_for_grads_2022-04-20.csv")
+write.csv(select_behav, file = "data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv")
