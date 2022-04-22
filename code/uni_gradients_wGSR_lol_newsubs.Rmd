@@ -1,0 +1,689 @@
+---
+title: "Wrangle SPINS gradients with GSR"
+output:
+  html_document:
+    df_print: paged
+---
+
+Grabbing SPINS gradients
+
+```{r}
+library(tidyverse)
+library(ggseg)
+library(ggsegGlasser)
+library(broom)
+```
+
+## Read in the SPINS big table
+
+
+```{r}
+
+spins_grads_wGSR <- read_csv("../gsr_spins_concat_full")
+# spins_grads <- spins_grads %>%
+#   mutate(site = str_sub(`Subject`, 5, 7)) %>%
+#   rename(task = `EA or RS`, 
+#          subject = `Subject ID`)
+spins_grads_noGSR <- read_csv("../spins_concat_full")
+
+spins_grads <- bind_rows("GSR" = spins_grads_wGSR,
+                     "noGSR" = spins_grads_noGSR,
+                     .id = "GSR")
+
+rm(spins_grads_noGSR, spins_grads_wGSR)
+```
+
+
+## read subject data
+
+
+```{r}
+lol_spins_behav <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-20.csv') %>%
+  filter(exclude_MRI==FALSE, 
+         exclude_meanFD==FALSE, 
+         exclude_earlyTerm==FALSE) %>%
+  mutate(subject = str_c("sub-", str_sub(record_id, 7,9), str_sub(record_id, 11, -1))) %>%
+  select(subject, scanner, diagnostic_group, demo_sex, demo_age_study_entry, 
+         scog_rmet_total, scog_er40_total, scog_mean_ea, scog_tasit1_total,
+         scog_tasit2_parsar, scog_tasit2_simpsar, scog_tasit2_sinc,
+         scog_tasit3_lie, scog_tasit3_sar, np_domain_tscore_att_vigilance,
+         np_domain_tscore_process_speed, np_domain_tscore_work_mem,
+         np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
+         np_domain_tscore_reasoning_ps, 
+         fd_mean_rest) %>%
+    filter(complete.cases(.))
+
+```
+```{r}
+names(lol_spins_behav)
+```
+
+## grab some network colours
+
+```{r}
+networks <- read_delim("../networks.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  select(NETWORK, NETWORKKEY, RED, GREEN, BLUE, ALPHA) %>%
+  distinct() %>%
+  add_row(NETWORK = "Subcortical", NETWORKKEY = 13, RED = 0, GREEN=0, BLUE=0, ALPHA=255) %>%
+  mutate(hex = rgb(RED, GREEN, BLUE, maxColorValue = 255)) %>%
+  arrange(NETWORKKEY)
+
+networks
+```
+
+
+## fitting models
+
+Models
+
+- model includes DX, sex, age, scanner, fd?
+
+- what about between task - 
+  - do paired ttest?
+  
+  
+So the current df is here: /projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_ea_conn_04-29-2021.csv
+6:27
+However, I also excluded ZHP_0110 and ZHP_0172 as they did not complete the soc cog tasks
+6:27
+So that df includes 356, but my current N is 354
+
+The following participants were missing task-rest cleaned files:
+sub-CMP0180
+sub-CMP0182
+sub-CMP0191
+sub-CMP0196
+sub-CMP0198
+sub-CMP0207
+sub-CMP0213
+sub-ZHH0034
+
+The following participants were missing task-emp background files:
+sub-CMH0025
+sub-CMH0044
+sub-CMH0095
+sub-CMH0138
+sub-MRC0075
+sub-MRP0077
+sub-MRP0147
+sub-MRP0149
+sub-MRP0151
+sub-MRP0161
+sub-ZHH0038
+sub-ZHP0061
+sub-ZHP0086
+
+## 
+
+```{r}
+overall_grand_mean_grads <- spins_grads %>%
+  mutate(Network = factor(Network, levels = networks$NETWORK)) %>%
+  filter(Subject %in% lol_spins_behav$subject) %>%
+  group_by(Task, ROI, Network, GSR) %>%
+  summarise_at(vars(grad1:grad3), mean)
+
+#grand_mean_grads
+```
+
+```{r}
+## a very convoluted way to pull networks of interest
+networks_of_interest <- overall_grand_mean_grads %>%
+  group_by(Network) %>%
+  summarise_at(vars(grad1:grad3), mean) %>%
+  pivot_longer(starts_with("grad"),
+               names_to = "grad_name", 
+               values_to = "grad_value") %>%
+  filter(abs(grad_value) > 0.2) %>%
+  distinct(Network) %>%
+  pull(Network) %>% as.character()
+  
+```
+
+
+```{r}
+grand_mean_grads <- spins_grads %>%
+  mutate(Network = factor(Network, levels = networks$NETWORK)) %>%
+  filter(Subject %in% lol_spins_behav$subject) %>%
+  group_by(Site, Task, ROI, Network, GSR) %>%
+  summarise_at(vars(grad1:grad3), mean)
+
+#grand_mean_grads
+```
+
+```{r}
+glasser_atlas <-
+  ggsegGlasser::glasser %>% as.tibble() %>% select(hemi, region, side, label)
+```
+
+
+```{r}
+overall_grads_for_plot <- overall_grand_mean_grads %>% 
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi))) %>%
+  
+  filter(Task == "RS", GSR == "GSR") %>%
+  select(starts_with("grad"), label)
+```
+
+```{r}
+overall_grads_for_plot %>%
+  pivot_longer(grad1:grad3,
+               names_to = "grad_num",
+               values_to = "grad_value") %>%
+  filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = grad_value),
+        atlas = glasser) +
+  scale_fill_distiller(type = "div") +
+  facet_wrap(~grad_num, ncol = 1) +
+  theme_brain2()
+```
+```{r}
+overall_grads_for_plot %>%
+  filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = grad1),
+        atlas = glasser) +
+  scale_fill_distiller(type = "div") +
+  theme_brain2()
+```
+
+```{r}
+overall_grads_for_plot %>%
+  filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = grad2),
+        atlas = glasser) +
+  scale_fill_distiller(type = "div") +
+  theme_brain2()
+```
+
+```{r}
+overall_grads_for_plot %>%
+  filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = grad3),
+        atlas = glasser) +
+  scale_fill_distiller(type = "div")
+```
+
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad1, y = grad2, colour = Network)) +
+  geom_point() +
+  scale_color_manual(values = networks$hex) +
+  facet_grid(Task*GSR ~ Site)
+```
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad1, y = grad3, colour = Network)) +
+  geom_point() +
+  scale_color_manual(values = networks$hex) +
+  facet_grid(Task*GSR ~ Site)
+```
+```{r fig.height=4, fig.width=12}
+grand_mean_grads %>%
+  ggplot(aes(x = grad2, y = grad3, colour = Network)) +
+  geom_point() +
+  scale_color_manual(values = networks$hex) +
+  facet_grid(Task*GSR ~ Site)
+```
+
+From age paper:
+Each axis of this 3D space was defined by the values along the first three gradients. Within network dispersion was quantified as sum squared Euclidean distance of network nodes to the network centroid at individual level. Between network dispersion was calculated as the Euclidean distance between network centroids.
+
+They also did linear models on nodal values from the first three gradients
+
+## calculating centroid and within network dispersion
+
+```{r}
+## calculate the network centers
+subject_level_centers <- spins_grads %>%
+  filter(Subject %in% lol_spins_behav$subject) %>%
+  group_by(Site, Task, Network, Subject, GSR) %>%
+  summarise_at(c("grad1", "grad2", "grad3"), mean)
+  
+subject_within_dispersion <- subject_level_centers %>%
+  
+  ## combine with orig spins grads
+  inner_join(spins_grads, by = c("Site", "Task", "Network", "Subject", "GSR"), suffix = c("_center", "")) %>%
+  
+  ## calculate squared euclidian distance from the network centroid  
+  ungroup() %>%
+  mutate(roi_distance_sq = (grad1_center - grad1)**2 + (grad2_center - grad2)**2 + (grad3_center - grad3)**2) %>% 
+  
+  ## dispersion as the sum of the squared distances within network and participant
+  group_by(Site, Task, GSR, Network, Subject) %>%
+  summarise(within_dispersion = sum(roi_distance_sq))
+  
+```
+
+## calculating between network dispersion
+
+Between network dispersion was calculated as the Euclidean distance between network centroids.
+
+```{r}
+library(igraph)
+
+## assumes that the network_centroids contains columns "Network", "grad1", "grad2", "grad3"
+calc_between_distances <- function(network_centoids) {
+  ## grab the unique network node names
+  network_names <- unique(network_centoids$Network)
+
+  ## create a graph dataframe of edges
+  result <- make_full_graph(length(network_names), directed = FALSE) %>% as_data_frame()
+  
+  for (i in 1:nrow(result)) {
+    to_name <- network_names[result$to[i]]
+    from_name <- network_names[result$from[i]]
+   
+    result$to_name[i] <- to_name
+    result$from_name[i] <- from_name
+
+  res_df <- test_centroids %>%
+    filter(Network == to_name | Network == from_name) %>%
+    mutate_at(vars(c("grad1", "grad2", "grad3")), function(x) {(x - lag(x))**2}) %>%
+    mutate(eucl_dist = sqrt(grad1 + grad2 + grad3))
+
+  result$eucl_dist[i] <- res_df$eucl_dist[2]
+
+  }
+
+  return(result %>% select(to_name, from_name, eucl_dist))
+}
+```
+
+
+```{r  eval = FALSE}
+between_network <- subject_level_centers %>%
+  ungroup() %>%
+  group_by(Site, Task, Subject, GSR) %>%
+  nest() %>%
+  mutate(distances = map(data, calc_between_distances)) 
+
+```
+
+```{r eval=FALSE}
+between_network <- subject_level_centers %>%
+  ungroup() %>%
+  group_by(Site, Task, Subject, GSR) %>%
+  nest() %>%
+  slice(1)
+
+between_network$data
+```
+
+
+## testing for EMP vs REST differences
+
+```{r eval = FALSE}
+# dropping this b/c task emp fd mean not in current sheet
+subject_level_centers %>%
+  filter(GSR=="GSR") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  mutate( fd_mean = if_else(Task=="EA", `fd_mean_task-emp`, `fd_mean_task-rest`)) %>%
+  ungroup() %>%
+  group_by(Network, GSR) %>%
+  do(tidy(aov(grad1 ~ Task + fd_mean + scanner + Error(Subject), data = .))) %>%
+  filter(term == "Task") %>%
+  arrange(GSR) %>%
+  knitr::kable()
+```
+```{r}
+library(table1)
+# diagnostic_group + demo_age_study_entry + demo_sex + fd_mean + scanner
+lol_spins_behav %>%
+  drop_na(fd_mean_rest) %>%
+  mutate(site = str_sub(scanner, 1,2)) %>%
+  semi_join(subject_within_dispersion, by = c("subject" = "Subject")) %>%
+  select(diagnostic_group, demo_age_study_entry, demo_sex, `fd_mean_rest`, site) %>%
+  distinct() %>%
+  table1(~ demo_age_study_entry + demo_sex + site + `fd_mean_rest` | diagnostic_group, data = .)
+```
+
+
+## fit case-control and age differences in gradient dispersion
+
+```{r}
+results_subject_within_dispersion <- subject_within_dispersion %>%
+  filter(GSR=="GSR", Task=="RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  group_by(Network, Task, GSR) %>%
+  do(tidy(lm(within_dispersion ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean_rest + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+results_subject_within_dispersion %>%
+  filter(term %in% c("diagnostic_groupcontrol", 
+                     "demo_age_study_entry")) %>%
+  arrange(GSR) %>%
+  filter(Network %in% networks_of_interest) %>%
+  knitr::kable()
+```
+```{r}
+results_subject_within_dispersion %>%
+  filter(term == "demo_age_study_entry") %>%
+  knitr::kable()
+```
+```{r fig.height=4, fig.width=8}
+library(ggridges)
+library(forcats)
+subject_level_centers %>%
+  filter(GSR=="GSR") %>%
+  filter(Network %in% networks_of_interest) %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  ggplot(aes(x = grad1, y = fct_reorder(Network, grad1, .fun = median))) +
+  geom_density_ridges() +
+  # scale_fill_manual(values = networks$hex) +
+  facet_grid(diagnostic_group~Task)
+```
+```{r fig.height=4, fig.width=8}
+subject_level_centers %>%
+  filter(GSR=="GSR") %>%
+  filter(Network %in% networks_of_interest) %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  ggplot(aes(x = grad2, y = fct_reorder(Network, grad2, .fun = median))) +
+  geom_density_ridges() +
+  # scale_fill_manual(values = networks$hex) +
+  facet_grid(diagnostic_group~Task)
+```
+
+```{r fig.height=4, fig.width=8}
+subject_level_centers %>%
+  filter(GSR=="GSR") %>%
+  filter(Network %in% networks_of_interest) %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  ggplot(aes(x = grad3, y = fct_reorder(Network, grad3, .fun = median))) +
+  geom_density_ridges() +
+  # scale_fill_manual(values = networks$hex) +
+  facet_grid(diagnostic_group~Task*GSR)
+```
+## fit network locations against case-control
+
+```{r}
+net_centroids_results <- subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, GSR, grad_num) %>%
+  do(tidy(lm(grad_value ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean_rest + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+net_centroids_results %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  filter(Network %in% networks_of_interest, GSR == "GSR") %>%
+  knitr::kable()
+```
+
+
+
+```{r}
+all_roi_results <- spins_grads %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  pivot_longer(grad1:grad3, names_to = "grad_num", values_to = "grad_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, , GSR, grad_num, ROI) %>%
+  do(tidy(lm(grad_value ~ diagnostic_group + demo_age_study_entry + demo_sex + fd_mean_rest + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+  
+#all_roi_results %>% write_csv('ROIwise_SPINS_SSDvsHC_result_wGSR.csv')
+```
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol",
+         Task == "RS",
+         p_FDR < 0.5) 
+```
+
+
+```{r}
+all_roi_results %>%
+
+  filter(term == "diagnostic_groupcontrol",
+         Task == "RS") %>%
+  mutate(statistic_sig = if_else(p_FDR < 0.05, statistic, 0),
+         roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi))) %>%
+  filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = statistic_sig),
+        atlas = glasser) +
+  scale_fill_distiller(palette = "RdBu") +
+  facet_wrap(~grad_num, ncol = 1) +
+  theme_brain2()
+```
+
+
+
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol", p_FDR < 0.05)
+```
+
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol", p_FDR < 0.05) %>%
+  count(Task,GSR, grad_num) %>%
+  arrange(Task, GSR, grad_num)
+```
+
+```{r}
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol", p_FDR < 0.05) %>%
+  count(Task, GSR, grad_num, Network) %>%
+  pivot_wider(names_from = grad_num, values_from = n)
+  
+```
+
+# Mass net centres vs clinical vars
+
+```{r eval = FALSE}
+symptom_vars <- c("bprs_factor_total", "bprs_factor_neg_symp", 
+                  "bprs_factor_neg_symp",
+                   "sans_total_sc")
+
+net_centroids_symptoms_results <- subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  mutate( fd_mean = if_else(Task=="EA", `fd_mean_task-emp`, `fd_mean_task-rest`)) %>%
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+  pivot_longer(all_of(symptom_vars), names_to = "symptom_scale", values_to = "symp_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, GSR, grad_num, symptom_scale) %>%
+  do(tidy(lm(grad_value ~ symp_value + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+net_centroids_symptoms_results %>%
+  filter(term == "symp_value") %>%
+  filter(Network %in% networks_of_interest, GSR == "GSR") %>%
+  arrange(symptom_scale, grad_num) %>%
+  knitr::kable()
+```
+
+### plot sans total score agains auditory grad2
+
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Auditory") %>%
+  ggplot(aes(x = diagnostic_group, y = grad2)) +
+    geom_boxplot(outlier.shape = NULL) +
+    geom_jitter(aes(colour = diagnostic_group)) +
+  labs(y = "Auditory Network Gradient 2 value (negative is more defined from visual)")
+```
+
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Auditory") %>%
+  ggplot(aes(x = sans_total_sc, y = grad2)) +
+    geom_point(aes(colour = diagnostic_group)) + 
+    geom_smooth(method = "lm")
+```
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Auditory") %>%
+  ggplot(aes(x = sans_total_sc, y = grad2)) +
+    geom_point(aes(colour = diagnostic_group)) + 
+    geom_smooth(method = "lm") +
+  facet_wrap(~site)
+```
+
+
+---> ROIwise SANS by grad2
+
+## neurocog and functioning my grads
+
+```{r eval = F}
+functioning_vars <- c("qls_total", "bsfs_total")
+
+net_centroids_functioning_results <- subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  mutate( fd_mean = if_else(Task=="EA", `fd_mean_task-emp`, `fd_mean_task-rest`)) %>%
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+  pivot_longer(all_of(functioning_vars), names_to = "func_scale", values_to = "func_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, GSR, grad_num, func_scale) %>%
+  do(tidy(lm(grad_value ~ func_value + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+net_centroids_functioning_results %>%
+  filter(term == "func_value") %>%
+  filter(Network %in% networks_of_interest, GSR == "GSR") %>%
+  arrange(func_scale, grad_num) %>%
+  knitr::kable()
+```
+
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Visual1") %>%
+  ggplot(aes(x = bsfs_total, y = grad1, colour = diagnostic_group)) +
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Auditory") %>%
+  ggplot(aes(x = bsfs_total, y = grad2, colour = diagnostic_group)) +
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+```{r eval = FALSE}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Visual2") %>%
+  ggplot(aes(x = qls_total, y = grad2, colour = diagnostic_group)) +
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+
+## Just the two vars for the SOBP abstract
+
+```{r eval = F}
+functioning_vars <- c("sans_total_sc", "bsfs_total")
+
+net_centroids_functioning_results <- subject_level_centers %>%
+  filter(GSR=="GSR", 
+         Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  mutate( fd_mean = if_else(Task=="EA", `fd_mean_task-emp`, `fd_mean_task-rest`)) %>%
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+  pivot_longer(all_of(functioning_vars), names_to = "func_scale", values_to = "func_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, GSR, grad_num, func_scale) %>%
+  do(tidy(lm(grad_value ~ func_value + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+net_centroids_functioning_results %>%
+  filter(term == "func_value") %>%
+  filter(Network %in% networks_of_interest, GSR == "GSR") %>%
+  arrange(func_scale, grad_num) %>%
+  knitr::kable()
+```
+
+## Gradient values against cognition
+
+
+
+```{r eval = F}
+
+
+net_centroids_functioning_results <- subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  mutate( fd_mean = if_else(Task=="EA", `fd_mean_task-emp`, `fd_mean_task-rest`)) %>%
+  pivot_longer(starts_with("grad"), names_to = "grad_num", values_to = "grad_value") %>%
+  pivot_longer(scog_tasit1_total:np_domain_tscore_social_cog, names_to = "cog_scale", values_to = "cog_value") %>%
+    ungroup() %>%
+  group_by(Network, Task, GSR, grad_num, cog_scale) %>%
+  do(tidy(lm(grad_value ~ cog_value  + demo_age_study_entry + demo_sex + fd_mean + scanner, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+net_centroids_functioning_results %>%
+  filter(term == "cog_value") %>%
+  filter(Network %in% networks_of_interest, GSR == "GSR") %>%
+  arrange(cog_scale, grad_num) %>%
+  knitr::kable()
+```
+```{r eval = F}
+subject_level_centers %>%
+  filter(GSR=="GSR", Task == "RS") %>%
+  inner_join(lol_spins_behav, by = c("Subject" = "subject")) %>%
+  filter(Network == "Visual2") %>%
+  ggplot(aes(x = np_composite_tscore, y = grad2, colour = diagnostic_group)) +
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+Therefore - the same relationship holds with cognition  - but seems to be mostly driven by the diagnostic group differences
+
+```{r eval = F}
+lol_spins_behav %>% 
+  ggplot(aes(x = sans_total_sc, y = `fd_mean_task-rest`)) +
+  geom_point()
+```
+
+## manova
+## correlational distance
+
+  
+## 
