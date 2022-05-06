@@ -1,6 +1,8 @@
 # spin_gradients
 project for tigrlab
 
+analyses reported in this poster: https://docs.google.com/presentation/d/1D0PcIdGw67kljaTB86W8ar0PDZmEw3v6o1tRbxKrEbE/edit?usp=sharing
+
 by Lucy Bassman e:lbassman@uoguelph.ca
 
 May 20 2021 - August 27 2021
@@ -34,3 +36,4 @@ all output csv files can be found under the main directory /scratch/a/arisvoin/l
 - template gradients used for alignment (HCP and margulies):
 - HCP gradients found at `/group-HCPS1200_atlas-GlasserTian_desc-subcorticalS2_conn.pconn.nii`
 - margulies gradients found at `/tpl-fsLR_den-32k_atlas-Glasser2016Tian2019S2_desc-margulies2016_gradients.pscalar.nii`
+
