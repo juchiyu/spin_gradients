@@ -1,0 +1,4 @@
+brainspace==0.1.1
+nibabel==3.2.1
+nilearn==0.7.1
+pandas==1.2.4

@@ -48,5 +48,9 @@ early_term_exc <- c("SPN01_CMP_0178","SPN01_CMP_0183","SPN01_CMP_0202","SPN01_ZH
                     "SPN01_ZHP_0100", "SPN01_ZHP_0103", "SPN01_ZHP_0162")
 select_behav$exclude_earlyTerm <- (select_behav$record_id %in% early_term_exc)
 
+# matching with behavioural data
+spins_behav_combat <- read.csv("/projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_data_full_03-03-2022.csv")
+
+
 ## save to .csv file
 write.csv(select_behav, file = "data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv")
