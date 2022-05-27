@@ -4,6 +4,8 @@
 library(tidyverse)
 lol_spins_behav <- read_csv('data/spins_behav_data_full_03-03-2022.csv')
 lol_spins_behav_old <- read_csv('data/spins_lolivers_subject_info_for_grads_2022-02-02.csv')
+## People in early termination have already been removed
+
 spins_RS_fd <- read.csv(file="data/SPINS_fd_by_run_12-14-2020.csv",stringsAsFactors=F)
 early_term <- read.csv(file="data/spins_termination_info_11-20-2020.csv", header=T, stringsAsFactors=F)
 
