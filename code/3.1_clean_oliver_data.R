@@ -2,7 +2,8 @@
 ## Exclusion criteria for Lindsay's data ##
 ###########################################
 library(tidyverse)
-lol_spins_behav <- read_csv('data/spins_behav_data_full_03-03-2022.csv')
+lol_spins_behav <- read.csv("/projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_data_full_03-03-2022.csv")
+#lol_spins_behav <- read_csv('data/spins_behav_data_full_03-03-2022.csv')
 lol_spins_behav_old <- read_csv('data/spins_lolivers_subject_info_for_grads_2022-02-02.csv')
 spins_RS_fd <- read.csv(file="data/SPINS_fd_by_run_12-14-2020.csv",stringsAsFactors=F)
 early_term <- read.csv(file="data/spins_termination_info_11-20-2020.csv", header=T, stringsAsFactors=F)
@@ -48,9 +49,19 @@ early_term_exc <- c("SPN01_CMP_0178","SPN01_CMP_0183","SPN01_CMP_0202","SPN01_ZH
                     "SPN01_ZHP_0100", "SPN01_ZHP_0103", "SPN01_ZHP_0162")
 select_behav$exclude_earlyTerm <- (select_behav$record_id %in% early_term_exc)
 
-# matching with behavioural data
-spins_behav_combat <- read.csv("/projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_data_full_03-03-2022.csv")
+# removing participants with no scog data
+early_term_nocog <- c("SPN01_CMP_0183","SPN01_MRP_0147","SPN01_ZHP_0100", "SPN01_ZHP_0103")
+select_behav$exclude_nocog <- (select_behav$record_id %in% early_term_nocog)
+
+# removing participants with incomplete scog data
+incomplete_scog <- c("SPN01_ZHP_0110", "SPN01_ZHP_0172")
+select_behav$exclude_incmpltcog <- (select_behav$record_id %in% incomplete_scog)
+
+# removing participants with no EA
+spins_behav_ea <- read.csv("/projects/loliver/SPINS_PLS_Conn/data/processed/spins_behav_ea_conn_11-24-2021.csv", header = T, stringsAsFactors = F)
+select_behav$exclude_noEA <- !(select_behav$record_id %in% spins_behav_ea$record_id)
 
 
 ## save to .csv file
 write.csv(select_behav, file = "data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv")
+
