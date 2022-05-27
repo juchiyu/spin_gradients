@@ -32,51 +32,50 @@ library("RColorBrewer")
 
 ```{r, echo = FALSE, warning= FALSE, message='hide'}
 
-spins_grads_wGSR <- read_csv("../gsr_spins_concat_full")
-# spins_grads <- spins_grads %>%
-#   mutate(site = str_sub(`Subject`, 5, 7)) %>%
-#   rename(task = `EA or RS`, 
-#          subject = `Subject ID`)
-spins_grads_noGSR <- read_csv("../spins_concat_full")
+spins_grads <- read_csv("../data/spins_gsr_RS_gradients.csv")
 
-spins_grads <- bind_rows("GSR" = spins_grads_wGSR,
-                         "noGSR" = spins_grads_noGSR,
-                         .id = "GSR")
-
-rm(spins_grads_noGSR, spins_grads_wGSR)
-
-spins_grads_num <- data.frame(spins_grads[,c(3:5, 13,15)])
-spins_grads_num_full <- data.frame(spins_grads[,c(3:5, 13,15,16)])
+spins_grads_num <- data.frame(spins_grads[,c(2:5,7)])
+spins_grads_num_full <- data.frame(spins_grads[,c(2:7)])
 spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI", direction = "wide")
 ```
 
 ## read subject data
 
 ```{r, echo = FALSE, warning= FALSE, message='hide'}
-lol_spins_behav <- 
+load("../data/spins_RS_2mm_GSR_GlasserTian_combated_imputed.RData")
+rm(rs_combat_cor_r, rs_combat_data_r, rs_combat_data_z)
+
+lol_spins_behav <- spins_behav_impt
+names(lol_spins_behav)
+lol_spins_behav$subject <- sub("SPN01_", "sub-", lol_spins_behav$record_id) %>% sub("_", "", .)
+
+## add motion data from the original behavioral set
+lol_original <- 
   read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-20.csv') %>%
   filter(exclude_MRI==FALSE, 
          exclude_meanFD==FALSE, 
-         exclude_earlyTerm==FALSE)
-names(lol_spins_behav)
-lol_spins_behav$subject <- sub("SPN01_", "sub-", lol_spins_behav$record_id) %>% sub("_", "", .)
+         exclude_earlyTerm==FALSE) %>% as.data.frame
+lol_original$subject <- sub("SPN01_", "sub-", lol_original$record_id) %>% sub("_", "", .)
+rownames(lol_original) <- lol_original$subject
+## extract by matching the subject of lol_spins_behav
+lol_spins_behav$fd_mean_rest <- lol_original[lol_spins_behav$subject,"fd_mean_rest"]
 
 ## design matrix for subjects
 spins_dx <- lol_spins_behav %>%
   select(subject,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
 spins_dx_org <- spins_dx[,-1] %>% data.frame
-rownames(spins_dx_org) <- spins_dx$subject
 
 ## numeric data
 spins_behav_num <- lol_spins_behav %>% 
-  select(scog_rmet_total, scog_er40_total, scog_mean_ea, scog_tasit1_total,
+  select(scog_rmet_total, scog_er40_total, #scog_mean_ea, 
+         scog_tasit1_total,
          scog_tasit2_parsar, scog_tasit2_simpsar, scog_tasit2_sinc,
          scog_tasit3_lie, scog_tasit3_sar, np_domain_tscore_att_vigilance,
          np_domain_tscore_process_speed, np_domain_tscore_work_mem,
          np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
          np_domain_tscore_reasoning_ps, 
-         #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
          fd_mean_rest
+         #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
   ) %>% data.frame
 colnames(spins_behav_num)
 rownames(spins_behav_num) <- lol_spins_behav$subject
@@ -85,7 +84,7 @@ rownames(spins_behav_num) <- lol_spins_behav$subject
 
 var2regout <- lol_spins_behav %>%
   select(demo_sex, demo_age_study_entry, `fd_mean_rest`, scanner) %>% data.frame
-rownames(var2regout) <- lol_spins_behav$subject
+rownames(var2regout) <- lol_spins_behav$record_id
 var2regout$demo_sex_num <- as.numeric(as.factor(var2regout$demo_sex))-1
 var2regout_num <- var2regout[,-1]
 ```
@@ -94,20 +93,18 @@ var2regout_num <- var2regout[,-1]
 
 ```{r, warning= FALSE, message='hide'}
 grad.sub <- spins_grads_wide$Subject[order(spins_grads_wide$Subject)]
-behav.sub <- lol_spins_behav$subject[order(lol_spins_behav$subject)]
+behav.sub <- lol_spins_behav$record_id[order(lol_spins_behav$record_id)]
 
-behav.sub[behav.sub %in% grad.sub == FALSE]
-grad.sub[grad.sub %in% behav.sub == FALSE]
+# behav.sub[behav.sub %in% grad.sub == FALSE]
+# grad.sub[grad.sub %in% behav.sub == FALSE]
 
-## kept subjects
-kept.sub <- behav.sub[behav.sub %in% grad.sub] # 405
-# spins_behav_num[complete.cases(spins_behav_num) == FALSE,]
-kept.sub[complete.cases(spins_behav_num[kept.sub,]) == FALSE]
-kept.sub <- kept.sub[complete.cases(spins_behav_num[kept.sub,])] # 389
+complete.cases(spins_grads_wide)
+complete.cases(lol_spins_behav)
+kept.sub <- lol_spins_behav$record_id[complete.cases(lol_spins_behav)==TRUE] # 417; 3 people has missing fd_mean
 
 ## grab the matching data
 
-behav.dat <- spins_behav_num[kept.sub,c(1:15)]
+behav.dat <- lol_spins_behav[kept.sub,c(6:19)]
 spins_grads_wide_org <- spins_grads_wide[,-1]
 rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
 grad.dat <- spins_grads_wide_org[kept.sub,]
@@ -115,7 +112,6 @@ grad.dat <- spins_grads_wide_org[kept.sub,]
 ## variables to regress out
 regout.dat <- var2regout_num[kept.sub,]
 
-rm(spins_grads_wide, spins_grads_wide_org, lol_spins_behav, spins_behav_num, spins_grads_num)
 
 ```
 
@@ -126,32 +122,32 @@ lol_demo <-
   read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv') %>%
   filter(exclude_MRI==FALSE, 
          exclude_meanFD==FALSE, 
-         exclude_earlyTerm==FALSE)
-names(lol_demo)
+         exclude_earlyTerm==FALSE) %>% as.data.frame
 lol_demo$subject <- sub("SPN01_", "sub-", lol_demo$record_id) %>% sub("_", "", .)
+rownames(lol_demo) <- lol_demo$record_id
+lol_demo_match <- lol_demo[kept.sub,]
 
 spins_demo <- lol_demo %>% 
-  select(demo_sex, demo_age_study_entry, diagnostic_group, scog_rmet_total, scog_er40_total, scog_mean_ea, scog_tasit1_total,
+  select(demo_sex, demo_age_study_entry, diagnostic_group, scog_rmet_total, scog_er40_total, #scog_mean_ea,
+         scog_tasit1_total,
          scog_tasit2_total, scog_tasit3_total,np_composite_tscore, np_domain_tscore_att_vigilance,
          np_domain_tscore_process_speed, np_domain_tscore_work_mem,
          np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
          np_domain_tscore_reasoning_ps, 
          #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
-         fd_mean_rest
+         #fd_mean_rest
   ) %>% data.frame
 colnames(spins_demo)
 rownames(spins_demo) <- lol_demo$subject
 
-spins_demo_fin <- spins_demo[kept.sub,]
-
-spins_demo_fin %>%
+spins_demo %>%
   group_by(diagnostic_group) %>%
   summarise_if(is.numeric, mean, na.rm = TRUE) %>% t
-spins_demo_fin %>%
+spins_demo %>%
   group_by(diagnostic_group) %>%
   summarize_if(is.numeric, sd, na.rm = TRUE) %>% t
 
-cbind(table(spins_demo_fin$diagnostic_group, spins_demo_fin$demo_sex), table(spins_demo_fin$diagnostic_group))
+cbind(table(spins_demo$diagnostic_group, spins_demo$demo_sex), table(spins_demo$diagnostic_group))
 ```
 
 
@@ -160,12 +156,12 @@ cbind(table(spins_demo_fin$diagnostic_group, spins_demo_fin$demo_sex), table(spi
 ```{r}
 table(regout.dat$demo_sex_num)
 
-behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
 
-grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
 
 grad.reg2plot <- apply(grad.dat, 2, function(x){
-  model <- lm(x~regout.dat$scanner + regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)
+  model <- lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)
   return(model$residual + model$coefficient[1])
 } )
 ```
@@ -250,12 +246,12 @@ pls.res <- tepPLS(behav.reg, grad.reg, DESIGN = sub.dx$diagnostic_group, make_de
 
 pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = TRUE, scale2 = TRUE, nIter = 1000, nf2keep = 4)
 # ## swith direction for dimension 3
-# pls.res$TExPosition.Data$fi[,3] <- pls.res$TExPosition.Data$fi[,3]*-1
-# pls.res$TExPosition.Data$fj[,3] <- pls.res$TExPosition.Data$fj[,3]*-1
-# pls.res$TExPosition.Data$pdq$p[,3] <- pls.res$TExPosition.Data$pdq$p[,3]*-1
-# pls.res$TExPosition.Data$pdq$q[,3] <- pls.res$TExPosition.Data$pdq$q[,3]*-1
-# pls.res$TExPosition.Data$lx[,3] <- pls.res$TExPosition.Data$lx[,3]*-1
-# pls.res$TExPosition.Data$ly[,3] <- pls.res$TExPosition.Data$ly[,3]*-1
+pls.res$TExPosition.Data$fi[,1] <- pls.res$TExPosition.Data$fi[,1]*-1
+pls.res$TExPosition.Data$fj[,1] <- pls.res$TExPosition.Data$fj[,1]*-1
+pls.res$TExPosition.Data$pdq$p[,1] <- pls.res$TExPosition.Data$pdq$p[,1]*-1
+pls.res$TExPosition.Data$pdq$q[,1] <- pls.res$TExPosition.Data$pdq$q[,1]*-1
+pls.res$TExPosition.Data$lx[,1] <- pls.res$TExPosition.Data$lx[,1]*-1
+pls.res$TExPosition.Data$ly[,1] <- pls.res$TExPosition.Data$ly[,1]*-1
 
 ## Scree plot
 PlotScree(pls.res$TExPosition.Data$eigs)
@@ -516,7 +512,7 @@ gradient_raw_brain <- pq_for_plot %>%
   geom_brain(mapping = aes(fill = raw),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1) +
-  scale_fill_distiller(palette = "BrBG", limits = c(-1,1), values = c(0, 0.4, 0.5, 0.6, 1)) +
+  scale_fill_distiller(palette = "BrBG", limits = c(-1.5,1.5), values = c(0, 0.4, 0.5, 0.6, 1)) +
   ggtitle("Gradients")
 ```
 
@@ -628,7 +624,7 @@ PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
 
 ```{r, include = FALSE}
 grad.reg.long <- data.frame(t(grad.reg2plot), grad.dx[,1:3])
-grad.reg.wide <- grad.reg.long %>% pivot_longer(cols = "sub.CMH0001":"sub.ZHP0171",
+grad.reg.wide <- grad.reg.long %>% pivot_longer(cols = "SPN01_CMH_0001":"SPN01_ZHP_0171",
              names_to = "Subject",
              names_prefix = "",
              values_to = "value") 
