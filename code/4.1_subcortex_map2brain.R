@@ -6,7 +6,6 @@ rm(list = ls())
 
 library(dplyr)
 library(tidyverse)
-library(InPosition)
 library(ggplot2)
 library(readxl)
 library(oro.nifti)
@@ -15,57 +14,62 @@ library(superheat)
 library(oro.nifti)
 
 # set up paths ----
-mask.path <- "../../Data/Mask/"
-pet.path <- "../../Data/PET/"
-indiv.path <- "../../Data/PET/indiv/"
-mni.path <- "../../Data/canonical/"
-demo.path <- "../../Data/Demographics/"
-func.dir <- "./functions"
-home.dir <- getwd()
-# source all functions==
-setwd(func.dir)
-sapply(list.files(), source)
-setwd(home.dir)
+mni.path <- "data/canonical/"
 #=======================
 
-load("ca.hg.rda")
+load("data/pls_grad_combat_res.rda")
 
 mniBrain <- readNIfTI(paste0(mni.path,"avg152T1.nii"))
-LatentBrain <- readNIfTI(paste0(indiv.path,"sub-007_ses-01_SRTM_BPnd_MNI.nii.gz"))
+LatentBrain <- readNIfTI(paste0(mni.path,"Tian_Subcortex_S2_3T.nii"))
+label.dx <- read.table(paste0(mni.path, "Tian_Subcortex_S2_3T_label.txt"))
+rownames(label.dx) <- 1:32
 
 str(LatentBrain@.Data)
 
 # sort data ----
-FactorScores <- sta.dxmat
-FactorScores$`Dimension2` <- ca.hg$ExPosition.Data$fj[as.character(sta.dxmat$voxID),2]
-FactorScores$`Dimension4` <- ca.hg$ExPosition.Data$fj[as.character(sta.dxmat$voxID),4]
-head(FactorScores)
+PlotData <- list(grad1 = pq_for_plot[pq_for_plot$gradient == "grad1" & pq_for_plot$network == "Subcortical",],
+                 grad2 = pq_for_plot[pq_for_plot$gradient == "grad2" & pq_for_plot$network == "Subcortical",],
+                 grad3 = pq_for_plot[pq_for_plot$gradient == "grad3" & pq_for_plot$network == "Subcortical",])
+
+rownames(PlotData$grad1) <- PlotData$grad1$ROI
+rownames(PlotData$grad2) <- PlotData$grad2$ROI
+rownames(PlotData$grad3) <- PlotData$grad3$ROI
+PlotData
 
 # map values back to brain array ----
 ## create empty array ----
-loadmap <- array(0, dim = dim(LatentBrain@.Data))
+loadmap <- array(NA, dim = dim(LatentBrain@.Data))
 
 # save fj of dimension 2 and 4
-brain.lv2 <- loadmap
-brain.lv4 <- loadmap
-for (i in 1:nrow(FactorScores)){
-  brain.lv2[FactorScores$rind[i], FactorScores$cind[i], FactorScores$tind[i]] <- FactorScores$Dimension2[i]
-  brain.lv4[FactorScores$rind[i], FactorScores$cind[i], FactorScores$tind[i]] <- FactorScores$Dimension4[i]
+brain <- list()
+brain$raw <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$q1 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$q2 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$qsig1 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$qsig2 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+
+# Replace values
+gothrough <- c("raw", "q1", "q2", "qsig1", "qsig2")
+
+
+for (value in 1:length(gothrough)){
+  for (grad in 1:3){
+    for (roi in 1:32){
+      brain[[gothrough[value]]][[grad]][LatentBrain@.Data == roi] <- as.numeric(PlotData[[grad]][label.dx[roi,], gothrough[value]])  
+    }
+    tmp <- LatentBrain
+    tmp@.Data <- brain[[gothrough[value]]][[grad]]
+    assign(sprintf("Brain.%s.grad%s", gothrough[value],grad), tmp)
+    
+    nifti.name <- sprintf("data/pls_subcort_nii/Brain.%s.grad%s", gothrough[value],grad)
+    
+    # write to nifti
+    writeNIfTI(
+      nim = get(sprintf("Brain.%s.grad%s", gothrough[value],grad)),
+      filename = sprintf("data/pls_subcort_nii/Brain.%s.grad%s", gothrough[value],grad))
+  }
 }
 
-
 # Back to nifti ----
-Brain_lv2 <- Brain_lv4 <- LatentBrain
-
-Brain_lv2@.Data <- brain.lv2
-Brain_lv4@.Data <- brain.lv4
-
 # write nifti ----
-writeNIfTI(
-  nim = Brain_lv2,
-  filename = "./Results/0.4_2_PET_cahg_Brain_exWM_lv2")
 
-writeNIfTI(
-  nim = Brain_lv4,
-  filename = "./Results/0.4_2_PET__cahg_Brain_exWM_lv4"
-)
