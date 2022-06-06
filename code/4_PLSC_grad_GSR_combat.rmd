@@ -77,7 +77,7 @@ spins_behav_num <- lol_spins_behav %>%
          fd_mean_rest
          #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
   ) %>% data.frame
-colnames(spins_behav_num)
+# colnames(spins_behav_num)
 rownames(spins_behav_num) <- lol_spins_behav$subject
 
 ## participants' variables of which the effects should be regressed out
@@ -98,8 +98,8 @@ behav.sub <- lol_spins_behav$record_id[order(lol_spins_behav$record_id)]
 # behav.sub[behav.sub %in% grad.sub == FALSE]
 # grad.sub[grad.sub %in% behav.sub == FALSE]
 
-complete.cases(spins_grads_wide)
-complete.cases(lol_spins_behav)
+# complete.cases(spins_grads_wide)
+# complete.cases(lol_spins_behav)
 kept.sub <- lol_spins_behav$record_id[complete.cases(lol_spins_behav)==TRUE] # 420
 
 ## grab the matching data
@@ -117,7 +117,7 @@ regout.dat <- var2regout_num[kept.sub,]
 
 ## Demographics
 
-```{r}
+```{r, warning= FALSE, message='hide'}
 lol_demo <- 
   read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv') %>%
   filter(exclude_MRI==FALSE, 
@@ -153,7 +153,7 @@ cbind(table(spins_demo$diagnostic_group, spins_demo$demo_sex), table(spins_demo$
 
 ## Regress out the effects
 
-```{r}
+```{r, warning= FALSE, message='hide'}
 table(regout.dat$demo_sex_num)
 
 behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
@@ -191,7 +191,7 @@ networks$hex <- darken(networks$hex, 0.2)
 #   off = c(0, 0)
 # )
 
-networks
+# networks
 ```
 
 ## get row and column designs
@@ -241,7 +241,7 @@ col.heat <- colorRampPalette(c("red", "white", "blue"))(256)
 
 ## Run PLS-C
 
-```{r}
+```{r, warning= FALSE, message='hide'}
 pls.res <- tepPLS(behav.reg, grad.reg, DESIGN = sub.dx$diagnostic_group, make_design_nominal = TRUE, graphs = FALSE)
 
 pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = TRUE, scale2 = TRUE, nIter = 1000, nf2keep = 4)
@@ -531,9 +531,9 @@ pq_for_plot %>%
   geom_brain(mapping = aes(fill = qsig1),
              atlas = glasser) +
   facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
-    c("grad1" = "Gradient 1",
-      "grad2" = "Gradient 2",
-      "grad3" = "Gradient 3")
+                                                        c("grad1" = "Gradient 1",
+                                                          "grad2" = "Gradient 2",
+                                                          "grad3" = "Gradient 3")
   )) +
   scale_fill_distiller(name = "loadings", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle(sprintf("PLSC: Dimension 1 (%.02f%% of variance)", pls.res$TExPosition.Data$t[1])) + 
@@ -541,7 +541,22 @@ pq_for_plot %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
-ggplot()
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q1),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1",
+                                                          "grad2" = "Gradient 2",
+                                                          "grad3" = "Gradient 3")
+  )) +
+  scale_fill_distiller(name = "loadings", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle(sprintf("PLSC: Dimension 1 (%.02f%% of variance)", pls.res$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
 
 PrettyBarPlot2(pls.res$TExPosition.Data$fi[,1],
                threshold = 0, 
@@ -567,7 +582,18 @@ pq_for_plot %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
-ggplot()
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q2),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("PLSC: Dimension 2")+ 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
 
 PrettyBarPlot2(pls.res$TExPosition.Data$fi[,2],
                threshold = 0, 
@@ -593,7 +619,18 @@ pq_for_plot %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
-ggplot()
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q3),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("PLSC: Dimension 3")+ 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
 
 PrettyBarPlot2(pls.res$TExPosition.Data$fi[,3],
                threshold = 0, 
@@ -619,7 +656,18 @@ pq_for_plot %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
-ggplot()
+pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = q4),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("PLSC: Dimension 4")+ 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
 
 PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
                threshold = 0, 
@@ -632,12 +680,12 @@ PrettyBarPlot2(pls.res$TExPosition.Data$fi[,4],
 ```{r, include = FALSE}
 grad.reg.long <- data.frame(t(grad.reg2plot), grad.dx[,1:3])
 grad.reg.wide <- grad.reg.long %>% pivot_longer(cols = "SPN01_CMH_0001":"SPN01_ZHP_0171",
-             names_to = "Subject",
-             names_prefix = "",
-             values_to = "value") 
+                                                names_to = "Subject",
+                                                names_prefix = "",
+                                                values_to = "value") 
 grad.reg.wide4plot <- grad.reg.wide %>% pivot_wider(names_from = "gradient",
-                                names_prefix = "",
-                                values_from = "value",) %>% data.frame
+                                                    names_prefix = "",
+                                                    values_from = "value",) %>% data.frame
 grad.reg.wide4plot$Subject <- sub("sub.", "sub-", grad.reg.wide4plot$Subject)
 names(grad.reg.wide4plot)[2] <- "Network"
 
@@ -756,14 +804,14 @@ G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
                                      col.background = "grey96",
                                      col.axes = "grey30")
 G1G2.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
-                                     axis1 = 1, axis2 = 2,
-                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                     cex = 2,
-                                     text.cex = 3,
-                                     alpha.points = 0.7,
-                                     col.background = "grey96",
-                                     col.axes = "grey30")
+                                  axis1 = 1, axis2 = 2,
+                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                  cex = 2,
+                                  text.cex = 3,
+                                  alpha.points = 0.7,
+                                  col.background = "grey96",
+                                  col.axes = "grey30")
 
 G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2,
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -805,14 +853,14 @@ G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
                                      col.axes = "grey30")
 
 G2G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
-                                     axis1 = 2, axis2 = 3,
-                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                     cex = 2,
-                                     text.cex = 3,
-                                     alpha.points = 0.7,
-                                     col.background = "grey96",
-                                     col.axes = "grey30")
+                                  axis1 = 2, axis2 = 3,
+                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                  cex = 2,
+                                  text.cex = 3,
+                                  alpha.points = 0.7,
+                                  col.background = "grey96",
+                                  col.axes = "grey30")
 
 G2G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -853,14 +901,14 @@ G1G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
                                      col.axes = "grey30")
 
 G1G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
-                                     axis1 = 1, axis2 = 3,
-                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                     cex = 2,
-                                     text.cex = 3,
-                                     alpha.points = 0.7,
-                                     col.background = "grey96",
-                                     col.axes = "grey30")
+                                  axis1 = 1, axis2 = 3,
+                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                  cex = 2,
+                                  text.cex = 3,
+                                  alpha.points = 0.7,
+                                  col.background = "grey96",
+                                  col.axes = "grey30")
 
 G1G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -921,4 +969,87 @@ We need to interpret the arrows with cautious, because only the direction and th
 G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim3
 G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim3
 G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim3
+```
+
+## Relationship to symptoms
+
+```{r}
+lol_spins_behav_smp <- cbind(lol_spins_behav, lol_original[lol_spins_behav$subject, c(22:27,30:39)])
+lol_spins_behav_ssd <- lol_spins_behav_smp %>% filter(diagnostic_group == "case")
+lol_spins_behav_ssd <- lol_spins_behav_ssd[complete.cases(lol_spins_behav_ssd),] # removing two people
+## SSD subjects
+ssd.sub <- lol_spins_behav_ssd$record_id
+
+## design matrix for subjects
+spins_dx_ssd <- lol_spins_behav_ssd %>%
+  select(subject,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
+
+## numeric data
+spins_symp_ssd <- lol_spins_behav_ssd %>% 
+  select(
+    bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+    qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
+    qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
+    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility
+  ) %>% data.frame
+rownames(spins_symp_ssd) <- lol_spins_behav_ssd$record_id
+
+## select lx/ly
+ssd.lx <- pls.res$TExPosition.Data$lx[ssd.sub,]
+ssd.ly <- pls.res$TExPosition.Data$ly[ssd.sub,]
+
+## color for symptoms measures
+
+## design matrix for columns - behavioral 
+sympt.dx <- matrix(nrow = ncol(spins_symp_ssd), ncol = 1, dimnames = list(colnames(spins_symp_ssd), "type")) %>% as.data.frame
+
+sympt.col <- c("bsfs" = "#D37295",
+               "bprs" = "#E15759",
+               "qls" = "#B07AA1",
+               "qls20" = "#B07AA1",
+               "sans" = "#FF9888")
+
+sympt.dx$type <- sub("(^[^_]+).*", "\\1", colnames(spins_symp_ssd))
+sympt.dx$type.col <- recode(sympt.dx$type, !!!sympt.col)
+
+```
+
+### Correlation
+```{r}
+corrplot::corrplot(cor(cbind(spins_symp_ssd, ssd.lx[,1:2], ssd.ly[,1:2])), method = "shade")
+
+lxly.12 <- cbind(ssd.lx[,1:2], ssd.ly[,1:2])
+colnames(lxly.12) <- c("lx.1", "lx.2", "ly.1", "ly.2")
+
+cor.mat <- psych::corr.test(spins_symp_ssd, lxly.12)
+
+## plot
+corrplot::corrplot(t(cor.mat$r), method = "shade", addCoef.col = TRUE, addCoefasPercent = TRUE, number.font = 0.2, p.mat = t(cor.mat$p), insig = "pch")
+
+## do PCA
+pca.symp <- epPCA(lxly.12, graphs = FALSE)
+
+PlotScree(pca.symp$ExPosition.Data$eigs)
+
+fj.map <- createFactorMap(pca.symp$ExPosition.Data$fj,
+                          # col.points = sympt.dx$type.col,
+                          # col.labels = sympt.dx$type.col
+                          )
+fj.arrows <- addArrows(pca.symp$ExPosition.Data$fj,
+                       # color = sympt.dx$type.col
+                       )
+
+fj.map$zeMap + fj.arrows
+
+cor.lxly <- cor(cbind(lxly.12, spins_symp_ssd), pca.symp$ExPosition.Data$fi)
+circor <- createFactorMap(cor.lxly,
+                          col.labels = c(rep("darkorchid4", 4), sympt.dx$type.col))
+arrow.cor <- addArrows(cor.lxly,
+                       color = c(rep("darkorchid4", 4), sympt.dx$type.col))
+circor$zeMap_background + circor$zeMap_text + arrow.cor + addCircleOfCor()
+
+```
+
+```{r, include = FALSE}
+save(pls.res, pls.boot, pq_for_plot, grad.dat, sub.dx, file = "../data/pls_grad_combat_res.rda")
 ```
