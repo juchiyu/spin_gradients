@@ -106,6 +106,7 @@ kept.sub <- lol_spins_behav$record_id[complete.cases(lol_spins_behav)==TRUE] # 4
 ## grab the matching data
 
 behav.dat <- lol_spins_behav[kept.sub,c(6:19)]
+
 spins_grads_wide_org <- spins_grads_wide[,-1]
 rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
 grad.dat <- spins_grads_wide_org[kept.sub,]
@@ -255,9 +256,12 @@ col.heat <- colorRampPalette(c("red", "white", "blue"))(256)
 ```{r, warning= FALSE, message='hide'}
 pls.res <- tepPLS(behav.reg, grad.reg, DESIGN = sub.dx$diagnostic_group, make_design_nominal = TRUE, graphs = FALSE)
 
-pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = TRUE, scale2 = TRUE, nIter = 1000, nf2keep = 5)
+pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = "SS1", scale2 = "SS1", nIter = 1000, nf2keep = 5, eig = TRUE)
 
-pls.inf <- data4PCCAR::perm4PLSC(behav.reg, grad.reg, scale1 = TRUE, scale2 = TRUE, nIter = 1000)
+pls.boot$bootRatiosSignificant.j[abs(pls.boot$bootRatios.j) < 2.88] <- FALSE
+pls.boot$bootRatiosSignificant.i[abs(pls.boot$bootRatios.i) < 2.88] <- FALSE
+
+pls.inf <- data4PCCAR::perm4PLSC(behav.reg, grad.reg, scale1 = "SS1", scale2 = "SS1", nIter = 1000)
 # ## swith direction for dimension 3
 pls.res$TExPosition.Data$fi[,1] <- pls.res$TExPosition.Data$fi[,1]*-1
 pls.res$TExPosition.Data$fj[,1] <- pls.res$TExPosition.Data$fj[,1]*-1
@@ -412,9 +416,11 @@ bar.grad3 <- PrettyBarPlot2(q.grad3[order(dx.grad3),1],
 
 ```
 
-
 ```{r, fig.show = 'hold', out.width = '50%'}
 lxly.out[[1]]
+
+lx1.ssd <- pls.res$TExPosition.Data$lx[which(sub.dx$diagnostic_group == "case"), 1]
+lx1.hc <- pls.res$TExPosition.Data$lx[which(sub.dx$diagnostic_group == "control"), 1]
 
 gridExtra::grid.arrange(bar.grad1, bar.grad2, bar.grad3, ncol = 1)
 
@@ -438,6 +444,34 @@ corX.case <- cor(as.matrix(behav.dat.case),as.matrix(grad.dat.case))
 heatmap(corX.case[cor.heat$rowInd, cor.heat$colInd], col = col.heat, Rowv = NA, Colv = NA)
 
 ```
+
+#### Bootstrap confidence intervals on the first LV
+
+```{r, echo = FALSE}
+iter = 1000
+
+CV <- function(x) sd(x)/abs(mean(x))
+CV.hc <- matrix(nrow = iter, ncol = 1)
+CV.ssd <- matrix(nrow = iter, ncol = 1)
+
+for (i in 1:iter){
+  boot.sample.hc <- sample(lx1.hc, length(lx1.hc), replace = TRUE)
+  CV.hc[i,] <- CV(boot.sample.hc)
+  
+  boot.sample.ssd <- sample(lx1.ssd, length(lx1.ssd), replace = TRUE)
+  CV.ssd[i,] <- CV(boot.sample.ssd)
+  }
+
+# mean(CV.hc)
+# CV.hc[order(CV.hc)[25],]; CV.hc[order(CV.hc)[975],]
+# 
+# mean(CV.ssd)
+# CV.ssd[order(CV.ssd)[25],]; CV.hc[order(CV.ssd)[975],]
+```
+
+$$CV_{control} = $$ `r round(mean(CV.hc),2)` \n 95\% bootstrap CI: [`r round(CV.hc[order(CV.hc)[25],], 2)`, `r round(CV.hc[order(CV.hc)[975],], 2)`]
+
+$$CV_{SSD} = $$ `r round(mean(CV.ssd),2)` \n 95\% bootstrap CI: [`r round(CV.ssd[order(CV.ssd)[25],], 2)`, `r round(CV.ssd[order(CV.ssd)[975],], 2)`]
 
 ### Dimension 2
 
@@ -565,7 +599,7 @@ cor.heat.res3 <- heatmap(pls.res$TExPosition.Data$X - dim3.est, col = col.heat)
 full.pq <- data.frame(grad.dx[,1:4], pls.res$TExPosition.Data$fj[,1:4], colMeans(grad.dat))
 colnames(full.pq)[5:9] <- c(paste0("fj", c(1:4)), "raw")
 
-# biltered by significance
+# filtered by significance
 full.pq.sig <- full.pq[,5:8]
 full.pq.sig[pls.boot$bootRatiosSignificant.j[,1:4] == FALSE] <- 0
 full.pq[,10:13] <- full.pq.sig
@@ -581,6 +615,12 @@ full.cj.sig[pls.boot$bootRatiosSignificant.j[,1:4] == FALSE] <- 0
 full.cj[,10:13] <- full.cj.sig
 colnames(full.cj)[10:13] <- c(paste0("cjsig", c(1:4)))
 
+# filtered by importance (1/#J)
+full.cj.imp <- full.cj[,5:8]
+full.cj.imp[full.cj[,5:8] < 1/nrow(full.cj)] <- 0
+full.cj[,14:17] <- full.cj.imp
+colnames(full.cj)[14:17] <- c(paste0("cjimp", c(1:4)))
+
 ## sign
 full.cj[,c("dir.1", "dir.2", "dir.3", "dir.4")] <- sign(pls.res$TExPosition.Data$fj[,1:4])
 
@@ -592,6 +632,9 @@ full.cj[,c("cj1_x_mean.pos", "cj2_x_mean.pos", "cj3_x_mean.pos", "cj4_x_mean.pos
 ## filtered by significance (bootstrap of fj)
 full.cj[,c("cjsig1_x_mean", "cjsig2_x_mean", "cjsig3_x_mean", "cjsig4_x_mean")] <- full.cj[,c("cjsig1", "cjsig2", "cjsig3", "cjsig4")]*full.cj$raw
 
+## filtered by importance (q^2)
+full.cj[,c("cjimp1_x_mean", "cjimp2_x_mean", "cjimp3_x_mean", "cjimp4_x_mean")] <- full.cj[,c("cjimp1", "cjimp2", "cjimp3", "cjimp4")]*full.cj$raw
+
 ## separate by sign
 
 full.cj <- full.cj %>% mutate(cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
@@ -602,6 +645,10 @@ full.cj <- full.cj %>% mutate(cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
                    cjsig2_x_mean.pos = if_else(dir.2 > 0,cjsig2_x_mean,0),
                    cjsig3_x_mean.pos = if_else(dir.3 > 0,cjsig3_x_mean,0),
                    cjsig4_x_mean.pos = if_else(dir.4 > 0,cjsig4_x_mean,0),
+                   cjimp1_x_mean.pos = if_else(dir.1 > 0,cjimp1_x_mean,0),
+                   cjimp2_x_mean.pos = if_else(dir.2 > 0,cjimp2_x_mean,0),
+                   cjimp3_x_mean.pos = if_else(dir.3 > 0,cjimp3_x_mean,0),
+                   cjimp4_x_mean.pos = if_else(dir.4 > 0,cjimp4_x_mean,0),
                    cj1_x_mean.neg = if_else(dir.1 < 0,cj1_x_mean,0),
                    cj2_x_mean.neg = if_else(dir.2 < 0,cj2_x_mean,0),
                    cj3_x_mean.neg = if_else(dir.3 < 0,cj3_x_mean,0),
@@ -609,7 +656,11 @@ full.cj <- full.cj %>% mutate(cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
                    cjsig1_x_mean.neg = if_else(dir.1 < 0,cjsig1_x_mean,0),
                    cjsig2_x_mean.neg = if_else(dir.2 < 0,cjsig2_x_mean,0),
                    cjsig3_x_mean.neg = if_else(dir.3 < 0,cjsig3_x_mean,0),
-                   cjsig4_x_mean.neg = if_else(dir.4 < 0,cjsig4_x_mean,0))
+                   cjsig4_x_mean.neg = if_else(dir.4 < 0,cjsig4_x_mean,0),
+                   cjimp1_x_mean.neg = if_else(dir.1 < 0,cjimp1_x_mean,0),
+                   cjimp2_x_mean.neg = if_else(dir.2 < 0,cjimp2_x_mean,0),
+                   cjimp3_x_mean.neg = if_else(dir.3 < 0,cjimp3_x_mean,0),
+                   cjimp4_x_mean.neg = if_else(dir.4 < 0,cjimp4_x_mean,0))
 
 # Organize data
 pq_for_plot <- full.pq %>% 
@@ -639,6 +690,7 @@ gradient_raw_brain <- pq_for_plot %>%
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
+
 ```
 
 ### Dimension 1
@@ -717,6 +769,42 @@ pqxcj_for_plot %>%
   )) +
   scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.007,0.007), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle(sprintf("PLSC Dimension 1 (negative): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## positive (filtered by importance)
+pqxcj_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = cjimp1_x_mean.pos),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. frontoparietal")
+  )) +
+  scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.007,0.007), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle(sprintf("PLSC Dimension 1 (important positive): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## negative (filtered by importance)
+pqxcj_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = cjimp1_x_mean.neg),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. frontoparietal")
+  )) +
+  scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.007,0.007), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle(sprintf("PLSC Dimension 1 (important negative): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[1])) + 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
@@ -827,6 +915,42 @@ pqxcj_for_plot %>%
   )) +
   scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.006,0.006), values = c(0, 0.45, 0.5, 0.55, 1)) +
   ggtitle(sprintf("PLSC Dimension 2 (negative): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[2])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## positive (filtered by importance)
+pqxcj_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = cjimp2_x_mean.pos),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. frontoparietal")
+  )) +
+  scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.006,0.006), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle(sprintf("PLSC Dimension 2 (important positive): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[2])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## negative (filtered by importance)
+pqxcj_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = cjimp2_x_mean.neg),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. frontoparietal")
+  )) +
+  scale_fill_distiller(name = "Value", palette = "BrBG", limits = c(-0.006,0.006), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle(sprintf("PLSC Dimension 2 (importance negative): %.02f%% of variance\nGradient (weighted by contribution)", pls.res$TExPosition.Data$t[2])) + 
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
@@ -1038,6 +1162,25 @@ case_roi_results <- spins_mean_bygrp[,1:5] %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
+## Glasser atlas
+net.col.idx.light <- lighten(net.col.idx)
+names(net.col.idx.light) <- names(net.col.idx)
+
+ pq_for_plot %>%
+  as.data.frame() %>%
+   group_by(gradient) %>%
+   filter(gradient == "grad1") %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = network),
+             atlas = glasser)+
+  scale_fill_manual(name = names(net.col.idx.light), values = net.col.idx.light) +
+  ggtitle("Gradients")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "bottom") + 
+  theme_brain(text.family = "Calibri") +
+   guides(fill = guide_legend(ncol = 4))
+ 
 ## plot control
 control_roi_results <- spins_mean_bygrp[,c(1:2, 6:8)] %>%
   pivot_longer(grad1.control:grad3.control, names_to = "gradient", values_to = "grad_value") %>%
@@ -1360,11 +1503,7 @@ spins_dx_ssd <- lol_spins_behav_ssd %>%
 ## numeric data
 spins_symp_ssd <- lol_spins_behav_ssd %>% 
   select(
-    bsfs_total, qls_total, bprs_factor_total, sans_total_sc 
-    # bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
-    # qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
-    # qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
-    # bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility
+    bsfs_total, qls_total, bprs_factor_total, sans_total_sc
   ) %>% data.frame
 rownames(spins_symp_ssd) <- lol_spins_behav_ssd$record_id
 
@@ -1398,7 +1537,7 @@ behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
          bsfs_sec1_total, bsfs_sec2_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
     qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
     qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
-    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility)
+    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility, sans_sub_affective_flat_blunt, sans_sub_alogia, sans_sub_avolition_apathy, sans_sub_asocial_anhedonia)
 rownames(behav_sympt) <- behav_sympt$record_id
 
 lol_spins_behav_smp <- cbind(lol_spins_behav, behav_sympt[lol_spins_behav$record_id, ])
@@ -1471,9 +1610,9 @@ TeachingDemos::pairs2(spins_symp_ssd, lxly.12, panel=panel.lm, pch = 16, col.lm 
 spins_symp_ssd_indiv <- lol_spins_behav_ssd %>% 
   select(
     bsfs_sec1_total, bsfs_sec2_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
-    qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
+qls_factor_interpersonal, qls_factor_instrumental_role,
     qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
-    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility
+    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility, sans_sub_affective_flat_blunt, sans_sub_alogia, sans_sub_avolition_apathy, sans_sub_asocial_anhedonia
   ) %>% data.frame
 rownames(spins_symp_ssd_indiv) <- lol_spins_behav_ssd$record_id
 
@@ -1484,10 +1623,10 @@ corrplot::corrplot(cor(cbind(spins_symp_ssd_indiv, ssd.lx[,1:2], ssd.ly[,1:2])),
 
 cor.indiv.mat <- psych::corr.test(spins_symp_ssd_indiv, lxly.12, adjust = "fdr")
 
-rownames(cor.indiv.mat$r) <- c("bsfs1: Social engagement/withdrawn", "bsfs2: Interpersonal communication/relationship", "bsfs3: Interpersonal prosocial activity", "bsfs4: Recreation activity", "bsfs5: Independence-performance", "bsfs6: Independence-competence", "qls20: Empathy", "qls: Interpersonal", "qls: Instrumental role", "qls: Intrapsychic foundations", "qls: Common objects and activities", "bprs: Negative symptoms", "bprs: Positive symptoms", "bprs: Anxiety/depression", "bprs: Activation", "bprs: hostility")
+rownames(cor.indiv.mat$r) <- c("bsfs1: Social engagement/withdrawn", "bsfs2: Interpersonal communication/relationship", "bsfs3: Interpersonal prosocial activity", "bsfs4: Recreation activity", "bsfs5: Independence-performance", "bsfs6: Independence-competence", "qls: Interpersonal", "qls: Instrumental role", "qls: Intrapsychic foundations", "qls: Common objects and activities", "bprs: Negative symptoms", "bprs: Positive symptoms", "bprs: Anxiety/depression", "bprs: Activation", "bprs: hostility", "sans: Affective flattening or blunting", "sans: Alogia", "sans: Avolition/Apathy", "sans: Asociality/Anhedonia")
 
 ## plot
-corrplot::corrplot(t(cor.indiv.mat$r), method = "shade", addCoef.col = TRUE, addCoefasPercent = TRUE, number.font = 0.2, p.mat = t(cor.indiv.mat$p), insig = "blank", title = "Correlation with FDR correction")
+corrplot::corrplot(t(cor.indiv.mat$r), method = "shade", addCoef.col = TRUE, addCoefasPercent = TRUE, number.font = 0.2, p.mat = t(cor.indiv.mat$p), insig = "pch", title = "Correlation with FDR correction")
 
 panel.lm<-
 function (x, y, col = par("col"), bg = NA, pch = par("pch"),
