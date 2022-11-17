@@ -1482,51 +1482,6 @@ G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap
 G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim3
 ```
 
-## Relationship to symptoms
-
-```{r}
-behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
-  select(record_id, bsfs_total, qls_total, bprs_factor_total, sans_total_sc)
-rownames(behav_sympt) <- behav_sympt$record_id
-
-lol_spins_behav_smp <- cbind(lol_spins_behav, behav_sympt[lol_spins_behav$record_id, ])
-lol_spins_behav_ssd <- lol_spins_behav_smp[lol_spins_behav_smp$diagnostic_group == "case",]
-lol_spins_behav_ssd <- lol_spins_behav_ssd[complete.cases(lol_spins_behav_ssd),] # removing two people with missing qls
-
-## SSD subjects
-ssd.sub <- lol_spins_behav_ssd$record_id
-
-## design matrix for subjects
-spins_dx_ssd <- lol_spins_behav_ssd %>%
-  select(subject,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
-
-## numeric data
-spins_symp_ssd <- lol_spins_behav_ssd %>% 
-  select(
-    bsfs_total, qls_total, bprs_factor_total, sans_total_sc
-  ) %>% data.frame
-rownames(spins_symp_ssd) <- lol_spins_behav_ssd$record_id
-
-## select lx/ly
-ssd.lx <- pls.res$TExPosition.Data$lx[ssd.sub,]
-ssd.ly <- pls.res$TExPosition.Data$ly[ssd.sub,]
-
-## color for symptoms measures
-
-## design matrix for columns - behavioral 
-sympt.dx <- matrix(nrow = ncol(spins_symp_ssd), ncol = 1, dimnames = list(colnames(spins_symp_ssd), "type")) %>% as.data.frame
-
-sympt.col <- c("bsfs" = "#D37295",
-               "bprs" = "#E15759",
-               "qls" = "#B07AA1",
-               "qls20" = "#B07AA1",
-               "sans" = "#FF9888")
-
-sympt.dx$type <- sub("(^[^_]+).*", "\\1", colnames(spins_symp_ssd))
-sympt.dx$type.col <- recode(sympt.dx$type, !!!sympt.col)
-
-```
-
 ## Relationship to symptoms {.tabset}
 
 ### Correlation to composite scores

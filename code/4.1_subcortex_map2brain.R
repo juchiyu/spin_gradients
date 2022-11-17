@@ -17,7 +17,7 @@ library(oro.nifti)
 mni.path <- "data/canonical/"
 #=======================
 
-load("data/pls_grad_combat_res.rda")
+load("results/data4Plot_from_4.RData")
 
 mniBrain <- readNIfTI(paste0(mni.path,"avg152T1.nii"))
 LatentBrain <- readNIfTI(paste0(mni.path,"Tian_Subcortex_S2_3T.nii"))
@@ -27,9 +27,9 @@ rownames(label.dx) <- 1:32
 str(LatentBrain@.Data)
 
 # sort data ----
-PlotData <- list(grad1 = pq_for_plot[pq_for_plot$gradient == "grad1" & pq_for_plot$network == "Subcortical",],
-                 grad2 = pq_for_plot[pq_for_plot$gradient == "grad2" & pq_for_plot$network == "Subcortical",],
-                 grad3 = pq_for_plot[pq_for_plot$gradient == "grad3" & pq_for_plot$network == "Subcortical",])
+PlotData <- list(grad1 = pqxcj_for_plot[pqxcj_for_plot$gradient == "grad1" & pqxcj_for_plot$network == "Subcortical",],
+                 grad2 = pqxcj_for_plot[pqxcj_for_plot$gradient == "grad2" & pqxcj_for_plot$network == "Subcortical",],
+                 grad3 = pqxcj_for_plot[pqxcj_for_plot$gradient == "grad3" & pqxcj_for_plot$network == "Subcortical",])
 
 rownames(PlotData$grad1) <- PlotData$grad1$ROI
 rownames(PlotData$grad2) <- PlotData$grad2$ROI
@@ -43,13 +43,21 @@ loadmap <- array(NA, dim = dim(LatentBrain@.Data))
 # save fj of dimension 2 and 4
 brain <- list()
 brain$raw <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
-brain$q1 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
-brain$q2 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
-brain$qsig1 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
-brain$qsig2 <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjimp1_x_mean.pos <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjimp1_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjimp2_x_mean.pos <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjimp2_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjsig1_x_mean.pos <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjsig1_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjsig2_x_mean.pos <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$cjsig2_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
 
 # Replace values
-gothrough <- c("raw", "q1", "q2", "qsig1", "qsig2")
+gothrough <- c("raw", 
+               "cjimp1_x_mean.pos", "cjimp1_x_mean.neg",
+               "cjimp2_x_mean.pos", "cjimp2_x_mean.neg",
+               "cjsig1_x_mean.pos", "cjsig1_x_mean.neg",
+               "cjsig2_x_mean.pos", "cjsig2_x_mean.neg")
 
 
 for (value in 1:length(gothrough)){
@@ -59,14 +67,14 @@ for (value in 1:length(gothrough)){
     }
     tmp <- LatentBrain
     tmp@.Data <- brain[[gothrough[value]]][[grad]]
-    assign(sprintf("Brain.%s.grad%s", gothrough[value],grad), tmp)
+    assign(sprintf("BrainFrom4.%s.grad%s", gothrough[value],grad), tmp)
     
-    nifti.name <- sprintf("data/pls_subcort_nii/Brain.%s.grad%s", gothrough[value],grad)
+    nifti.name <- sprintf("data/pls_subcort_nii/BrainFrom4.%s.grad%s", gothrough[value],grad)
     
     # write to nifti
     writeNIfTI(
-      nim = get(sprintf("Brain.%s.grad%s", gothrough[value],grad)),
-      filename = sprintf("data/pls_subcort_nii/Brain.%s.grad%s", gothrough[value],grad))
+      nim = get(sprintf("BrainFrom4.%s.grad%s", gothrough[value],grad)),
+      filename = sprintf("data/pls_subcort_nii/BrainFrom4.%s.grad%s", gothrough[value],grad))
   }
 }
 
