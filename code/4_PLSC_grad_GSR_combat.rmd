@@ -637,7 +637,12 @@ full.cj[,c("cjimp1_x_mean", "cjimp2_x_mean", "cjimp3_x_mean", "cjimp4_x_mean")] 
 
 ## separate by sign
 
-full.cj <- full.cj %>% mutate(cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
+full.cj <- full.cj %>% mutate(
+                   cjimp1.pos = if_else(dir.1 > 0,cjimp1,0),
+                   cjimp2.pos = if_else(dir.2 > 0,cjimp2,0),
+                   cjsig1.pos = if_else(dir.1 > 0,cjsig1,0),
+                   cjsig2.pos = if_else(dir.2 > 0,cjsig2,0),
+                   cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
                    cj2_x_mean.pos = if_else(dir.2 > 0,cj2_x_mean,0),
                    cj3_x_mean.pos = if_else(dir.3 > 0,cj3_x_mean,0),
                    cj4_x_mean.pos = if_else(dir.4 > 0,cj4_x_mean,0),
@@ -649,6 +654,10 @@ full.cj <- full.cj %>% mutate(cj1_x_mean.pos = if_else(dir.1 > 0,cj1_x_mean,0),
                    cjimp2_x_mean.pos = if_else(dir.2 > 0,cjimp2_x_mean,0),
                    cjimp3_x_mean.pos = if_else(dir.3 > 0,cjimp3_x_mean,0),
                    cjimp4_x_mean.pos = if_else(dir.4 > 0,cjimp4_x_mean,0),
+                   cjimp1.neg = if_else(dir.1 < 0,cjimp1,0),
+                   cjimp2.neg = if_else(dir.2 < 0,cjimp2,0),
+                   cjsig1.neg = if_else(dir.1 < 0,cjsig1,0),
+                   cjsig2.neg = if_else(dir.2 < 0,cjsig2,0),
                    cj1_x_mean.neg = if_else(dir.1 < 0,cj1_x_mean,0),
                    cj2_x_mean.neg = if_else(dir.2 < 0,cj2_x_mean,0),
                    cj3_x_mean.neg = if_else(dir.3 < 0,cj3_x_mean,0),
@@ -1080,6 +1089,16 @@ grad.reg.wide4plot <- grad.reg.wide %>% pivot_wider(names_from = "gradient",
 grad.reg.wide4plot$Subject <- sub("sub.", "sub-", grad.reg.wide4plot$Subject)
 names(grad.reg.wide4plot)[2] <- "Network"
 
+## organize data - contributions
+spins_cj <- list(grad1 = pqxcj_for_plot %>% filter(gradient == "grad1"),
+                 grad2 = pqxcj_for_plot %>% filter(gradient == "grad2"),
+                 grad3 = pqxcj_for_plot %>% filter(gradient == "grad3"))
+
+spins_cj <- lapply(spins_cj, function(x) {
+   rownames(x) <- spins_cj$grad1$ROI
+   return(x)
+  })
+
 ## organize data - ROI average
 spins_mean <- getMeans(grad.reg.wide4plot[,4:6], grad.reg.wide4plot$ROI)
 grad2plot <- spins_mean
@@ -1093,25 +1112,28 @@ colnames(net_mean) <- c(paste0("Gradient ", c(1:3)))
 
 ## organize data - ROI & group average
 spins_grad_everything <- merge(grad.reg.wide4plot, sub.dx, by.x = "Subject", by.y = 0)
+
 spins_mean_bygrp<- spins_grad_everything %>% 
   group_by(ROI, Network,diagnostic_group) %>% 
-  summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
   as.data.frame %>%
   reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+
 spins_sd_bygrp<- spins_grad_everything %>% 
   group_by(ROI, Network,diagnostic_group) %>% 
-  summarize(across(starts_with("grad"), ~ sd(.x, na.rm = TRUE))) %>%
+  dplyr::summarize(across(starts_with("grad"), ~ sd(.x, na.rm = TRUE))) %>%
   as.data.frame %>%
   reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
 
 grad2plot2 <- spins_mean_bygrp[,c(3:8)]
 grad4grp2 <- unique(spins_mean_bygrp[,c(1:2)]) %>% as.data.frame
 rownames(grad4grp2) <- grad4grp2$ROI
+rownames(grad2plot2) <- grad4grp2$ROI
 
 ## organize data - network mean by groups
 net_mean_bygrp <- spins_mean_bygrp %>%
   group_by(Network) %>%
-  summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
   as.data.frame
 rownames(net_mean_bygrp) <- net_mean_bygrp$Network
 
@@ -1166,20 +1188,35 @@ case_roi_results <- spins_mean_bygrp[,1:5] %>%
 net.col.idx.light <- lighten(net.col.idx)
 names(net.col.idx.light) <- names(net.col.idx)
 
- pq_for_plot %>%
+glasser_brain <- pq_for_plot %>%
   as.data.frame() %>%
    group_by(gradient) %>%
    filter(gradient == "grad1") %>%
   ggplot() +
   geom_brain(mapping = aes(fill = network),
              atlas = glasser)+
-  scale_fill_manual(name = names(net.col.idx.light), values = net.col.idx.light) +
+  scale_fill_manual(name = "Networks", values = net.col.idx.light) +
   ggtitle("Gradients")+
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank(),
         legend.position = "bottom") + 
   theme_brain(text.family = "Calibri") +
    guides(fill = guide_legend(ncol = 4))
+
+glasser_brain4plot <- pq_for_plot %>%
+  as.data.frame() %>%
+   group_by(gradient) %>%
+   filter(gradient == "grad1") %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = network),
+             atlas = glasser,
+             position = position_brain(hemi~side))+
+  scale_fill_manual(name = "Networks", values = net.col.idx.light) +
+  ggtitle("Gradients")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
  
 ## plot control
 control_roi_results <- spins_mean_bygrp[,c(1:2, 6:8)] %>%
@@ -1220,8 +1257,9 @@ all_roi_results %>%
   filter(term == "diagnostic_groupcontrol") %>%
   mutate(roi = str_remove(ROI, "_ROI"),
          label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
-                           str_starts(ROI, "R_") ~ str_c("rh_", roi))) %>%
-  filter(Network != "Subcortical") %>%
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  # filter(Network != "Subcortical") %>%
   filter(ROI != "L_10pp_ROI") %>%
   as.data.frame() %>%
   group_by(gradient) %>%
@@ -1239,49 +1277,170 @@ all_roi_results %>%
         axis.text.x.bottom = element_blank()) + 
   theme_brain(text.family = "Calibri")
 
+
+## plot the F statistics (filtered by FDR test)
+all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  # filter(Network != "Subcortical") %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = statistic.cor),
+        atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. frontoparietal")
+  )) +
+  scale_fill_distiller(name = "F value", palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1)) +
+  ggtitle("Gradients: Controls > SSD\n(significant results; FDR-corrected)")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+glasser_brain
+```
+
+```{r, echo = FALSE, fig.show = 'hold', out.width = '50%'}
+## results from F-test filtered by p_FDR
+all_roi_test <- all_roi_results %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+## Plot gradients
+## Gradients 1 & 2
+G1G2.roi.control <- createFactorMap(spins_mean_bygrp[,6:8],
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[spins_mean_bygrp$ROI,],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 1, axis2 = 2,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+G1G2.roi.control$zeMap_background + G1G2.roi.control$zeMap_dots + G1G2.mean.control$zeMap_dots + G1G2.mean.control$zeMap_text + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradients: Healthy controls")
+
+G1G2.roi.case <- createFactorMap(spins_mean_bygrp[,3:5],
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[spins_mean_bygrp$ROI,],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G1G2.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
+                                  axis1 = 1, axis2 = 2,
+                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                  cex = 2,
+                                  text.cex = 3,
+                                  alpha.points = 0.7,
+                                  col.background = "grey96",
+                                  col.axes = "grey30")
+
+G1G2.roi.case$zeMap_background + G1G2.roi.case$zeMap_dots + G1G2.mean.case$zeMap_dots + G1G2.mean.case$zeMap_text + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradients: SSD")
+
+## Gradients 2 & 3
+G2G3.roi.control <- createFactorMap(spins_mean_bygrp[,6:8],
+                        axis1 = 2, axis2 = 3,
+                        col.points = roi.col$oc[spins_mean_bygrp$ROI,],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 2, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+G2G3.roi.control$zeMap_background + G2G3.roi.control$zeMap_dots + G2G3.mean.control$zeMap_dots + G2G3.mean.control$zeMap_text + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradients: Healthy controls")
+
+G2G3.roi.case <- createFactorMap(spins_mean_bygrp[,3:5],
+                        axis1 = 2, axis2 = 3,
+                        col.points = roi.col$oc[spins_mean_bygrp$ROI,],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G2G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
+                                  axis1 = 2, axis2 = 3,
+                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                  cex = 2,
+                                  text.cex = 3,
+                                  alpha.points = 0.7,
+                                  col.background = "grey96",
+                                  col.axes = "grey30")
+
+G2G3.roi.case$zeMap_background + G2G3.roi.case$zeMap_dots + G2G3.mean.case$zeMap_dots + G2G3.mean.case$zeMap_text + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradients: SSD")
+
+
 ```
 
 
-3D plot of the gradients
+<!-- 3D plot of the gradients -->
 
-```{r, echo = FALSE}
-data4plotly <- data.frame(spins_mean, grad4grp[rownames(spins_mean),])
-data4plotly.case <- data.frame(spins_mean_bygrp[,3:5], grad4grp2[spins_mean_bygrp$ROI,])
-data4plotly.control <- data.frame(spins_mean_bygrp[,6:8], grad4grp2[spins_mean_bygrp$ROI,])
-color4plotly <- net.col.idx
+<!-- ```{r, echo = FALSE} -->
+<!-- data4plotly <- data.frame(spins_mean, grad4grp[rownames(spins_mean),]) -->
+<!-- data4plotly.case <- data.frame(spins_mean_bygrp[,3:5], grad4grp2[spins_mean_bygrp$ROI,]) -->
+<!-- data4plotly.control <- data.frame(spins_mean_bygrp[,6:8], grad4grp2[spins_mean_bygrp$ROI,]) -->
+<!-- color4plotly <- net.col.idx -->
 
-## overall average
-fig <- plot_ly(data4plotly, x = ~grad1, y = ~grad2, z = ~grad3, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
-fig <- fig %>% add_markers()
-fig <- fig %>% layout(title = "Overall: mean gradients by ROIs",
-                      scene = list(xaxis = list(title = "Gradient 1"),
-                                   yaxis = list(title = "Gradient 2"),
-                                   zaxis = list(title = "Gradient 3")))
-## case
-fig.case <- plot_ly(data4plotly.case, x = ~grad1.case, y = ~grad2.case, z = ~grad3.case, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
-fig.case <- fig.case %>% add_markers()
-fig.case <- fig.case %>% layout(title = "Case: mean gradients by ROIs",
-                                scene = list(xaxis = list(title = "Gradient 1"),
-                                             yaxis = list(title = "Gradient 2"),
-                                             zaxis = list(title = "Gradient 3")))
+<!-- ## overall average -->
+<!-- fig <- plot_ly(data4plotly, x = ~grad1, y = ~grad2, z = ~grad3, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)   -->
+<!-- fig <- fig %>% add_markers() -->
+<!-- fig <- fig %>% layout(title = "Overall: mean gradients by ROIs", -->
+<!--                       scene = list(xaxis = list(title = "Gradient 1"), -->
+<!--                                    yaxis = list(title = "Gradient 2"), -->
+<!--                                    zaxis = list(title = "Gradient 3"))) -->
+<!-- ## case -->
+<!-- fig.case <- plot_ly(data4plotly.case, x = ~grad1.case, y = ~grad2.case, z = ~grad3.case, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)   -->
+<!-- fig.case <- fig.case %>% add_markers() -->
+<!-- fig.case <- fig.case %>% layout(title = "Case: mean gradients by ROIs", -->
+<!--                                 scene = list(xaxis = list(title = "Gradient 1"), -->
+<!--                                              yaxis = list(title = "Gradient 2"), -->
+<!--                                              zaxis = list(title = "Gradient 3"))) -->
 
-## control
-fig.control <- plot_ly(data4plotly.control, x = ~grad1.control, y = ~grad2.control, z = ~grad3.control, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)  
-fig.control <- fig.control %>% add_markers()
-fig.control <- fig.control %>% layout(title = "Control: mean gradients by ROIs",
-                                      scene = list(xaxis = list(title = "Gradient 1"),
-                                                   yaxis = list(title = "Gradient 2"),
-                                                   zaxis = list(title = "Gradient 3")))
+<!-- ## control -->
+<!-- fig.control <- plot_ly(data4plotly.control, x = ~grad1.control, y = ~grad2.control, z = ~grad3.control, color = ~Network, colors = color4plotly, alpha = 0.5, size = 5)   -->
+<!-- fig.control <- fig.control %>% add_markers() -->
+<!-- fig.control <- fig.control %>% layout(title = "Control: mean gradients by ROIs", -->
+<!--                                       scene = list(xaxis = list(title = "Gradient 1"), -->
+<!--                                                    yaxis = list(title = "Gradient 2"), -->
+<!--                                                    zaxis = list(title = "Gradient 3"))) -->
 
-## print 3
-fig
-fig.case
-fig.control
+<!-- ## print 3 -->
+<!-- fig -->
+<!-- fig.case -->
+<!-- fig.control -->
 
-```
+<!-- ``` -->
 
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, warning= FALSE, message='hide'}
 ### Gradients 1 & 2
 G1G2 <- createFactorMap(grad2plot,
                         axis1 = 1, axis2 = 2,
@@ -1300,24 +1459,6 @@ G1G2.mean <- createFactorMap(net_mean,
                         col.background = "grey96",
                         col.axes = "grey30")
 
-G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
-                                     axis1 = 1, axis2 = 2,
-                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                     cex = 2,
-                                     text.cex = 3,
-                                     alpha.points = 0.7,
-                                     col.background = "grey96",
-                                     col.axes = "grey30")
-G1G2.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
-                                  axis1 = 1, axis2 = 2,
-                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                  cex = 2,
-                                  text.cex = 3,
-                                  alpha.points = 0.7,
-                                  col.background = "grey96",
-                                  col.axes = "grey30")
 
 G1G2.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$`Gradient 2`, xend = net_mean$`Gradient 1` + net_mean.fj$Dim1.grad1, yend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2,
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
@@ -1328,10 +1469,9 @@ G1G2.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 1`, y = net_mean$
 
 G1G2.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mean_bygrp$grad2.control, xend = net_mean_bygrp$grad1.case, yend = net_mean_bygrp$grad2.case, 
                         color = arrow.col, alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
-
 ```
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, warning= FALSE, message='hide'}
 ### Gradients 2 & 3
 G2G3 <- createFactorMap(grad2plot,
                         axis1 = 2, axis2 = 3,
@@ -1351,26 +1491,6 @@ G2G3.mean <- createFactorMap(net_mean,
                         col.axes = "grey30"
                              )
 
-G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
-                                     axis1 = 2, axis2 = 3,
-                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                     cex = 2,
-                                     text.cex = 3,
-                                     alpha.points = 0.7,
-                                     col.background = "grey96",
-                                     col.axes = "grey30")
-
-G2G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
-                                  axis1 = 2, axis2 = 3,
-                                  col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                  col.labels = roi.col$gc[net_mean_bygrp$Network,],
-                                  cex = 2,
-                                  text.cex = 3,
-                                  alpha.points = 0.7,
-                                  col.background = "grey96",
-                                  col.axes = "grey30")
-
 G2G3.arrows.dim1 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim1.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim1.grad3, 
                              color = arrow.col, alpha = 0.8, arrow = arrow(length = unit(0.25, "cm"), type = "closed", angle = 20), size = 1)
 G2G3.arrows.dim2 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$`Gradient 3`, xend = net_mean$`Gradient 2` + net_mean.fj$Dim2.grad2, yend = net_mean$`Gradient 3` + net_mean.fj$Dim2.grad3, 
@@ -1380,9 +1500,11 @@ G2G3.arrows.dim3 <- annotate("segment", x = net_mean$`Gradient 2`, y = net_mean$
 
 G2G3.arrows <- annotate("segment", x = net_mean_bygrp$grad2.control, y = net_mean_bygrp$grad3.control, xend = net_mean_bygrp$grad2.case, yend = net_mean_bygrp$grad3.case, 
                         color = "black", alpha = 1, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 30), size = 0.5)
+
+G2G3.arrows.roi <- annotate("segment", x = grad2plot2$grad2.control, y = grad2plot2$grad3.control, xend = grad2plot2$grad2.case, yend = grad2plot2$grad3.case, color = roi.col$oc[rownames(grad2plot2),], alpha = 0.2, arrow = arrow(length = unit(0.2, "cm"), type = "closed", angle = 20), linewidth = 0.8)
 ```
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, warning= FALSE, message='hide'}
 ### Gradients 1 & 3
 G1G3 <- createFactorMap(grad2plot,
                         axis1 = 1, axis2 = 3,
@@ -1433,13 +1555,11 @@ G1G3.arrows <- annotate("segment", x = net_mean_bygrp$grad1.control, y = net_mea
 
 ### Group difference
 
-```{r, echo = FALSE, fig.show='hold', out.width='50%'}
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show='hold', out.width='50%'}
 G1G2.mean.control$zeMap + G1G2.arrows + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case")
 G2G3.mean.control$zeMap + G2G3.arrows + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
-G1G3.mean.control$zeMap + G1G3.arrows + ggtitle("From control to case")
+# G1G3.mean.control$zeMap + G1G3.arrows + ggtitle("From control to case")
 # G1G2.mean.control$zeMap_background + G1G2.mean.case$zeMap_text + G1G2.arrows + ggtitle("From control to case")
-G1G2.mean.control$zeMap + ggtitle("Control")
-G1G2.mean.case$zeMap + ggtitle("Case")
 # 
 # G2G3.mean.control$zeMap_background + G2G3.mean.case$zeMap_text + G2G3.arrows + ggtitle("From control to case")
 # G2G3.mean.control$zeMap + ggtitle("Control")
@@ -1451,36 +1571,419 @@ G1G2.mean.case$zeMap + ggtitle("Case")
 
 ```
 
+### visualization
 
-### Dimension 1
+#### Group effect
 
-We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show='hold', out.width='50%'}
 
-```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim1
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim1
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim1
+G1G2.arrows.roi <- annotate("segment", 
+                            x = grad2plot2$grad1.control, 
+                            y = grad2plot2$grad2.control, 
+                            xend = grad2plot2$grad1.case, 
+                            yend = grad2plot2$grad2.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = 0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case")
+
+G2G3.arrows.roi <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = 0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
 ```
 
-### Dimension 2
+#### By contributions and significance to PLS
 
-We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
 
-```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim2
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim2
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim2
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show='hold', out.width='50%'}
+G1G2.arrows.roi.impG1 <- annotate("segment", 
+                            x = grad2plot2$grad1.control, 
+                            y = grad2plot2$grad2.control, 
+                            xend = grad2plot2$grad1.case, 
+                            yend = grad2plot2$grad2.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+G1G2.arrows.roi.sigG1pos <- annotate("segment", 
+                            x = grad2plot2$grad1.control, 
+                            y = grad2plot2$grad2.control, 
+                            xend = grad2plot2$grad1.case, 
+                            yend = grad2plot2$grad2.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+G1G2.arrows.roi.sigG1neg <- annotate("segment", 
+                            x = grad2plot2$grad1.control, 
+                            y = grad2plot2$grad2.control, 
+                            xend = grad2plot2$grad1.case, 
+                            yend = grad2plot2$grad2.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.impG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nContribute more than average")
+glasser_brain4plot
+G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.sigG1pos + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: positive")
+G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.sigG1neg + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: negative")
+
+G2G3.arrows.roi.impG2 <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.arrows.roi.sigG2pos <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.arrows.roi.sigG2neg <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.impG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average")
+
+glasser_brain4plot
+
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG2pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: positive")
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG2neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: negative")
+
+G2G3.arrows.roi.impG3 <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.arrows.roi.sigG3pos <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+G2G3.arrows.roi.sigG3neg <- annotate("segment", 
+                            x = grad2plot2$grad2.control, 
+                            y = grad2plot2$grad3.control, 
+                            xend = grad2plot2$grad2.case, 
+                            yend = grad2plot2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2),], 
+                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.impG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
+glasser_brain4plot
+
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG3pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
+G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG3neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
+
 ```
 
-### Dimension 3
+### Subcortical
 
-We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point.
+```{r, echo = FALSE, warning= FALSE, message='hide', include = FALSE}
+subcor.col <- c("grey60", "grey60", "#a6cee3", "#1f78b4", "white", "#b2df8a", "white", "#B03060", "#ff7f00", "#CD6889", "white", "white", "#33a02c", "#EE9A49", "#B452CD", "#68228B", "#FFD700", "#D1AE22", rep("white", 11)) %>% setNames(aseg$data$label)
+names(subcor.col)[c(1,2,29)] <- NA
 
-```{r, echo = FALSE, fig.show='hold', out.width='50%'}
-G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim3
-G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim3
-G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim3
+asegbrain <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "right",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.key.height = unit(0.2, "cm"), legend.key.width = unit(0.4, "cm") ) + 
+  theme_brain(text.family = "Calibri") +
+   guides(name = "Regions", fill = guide_legend(nrow = 8))
+  
+asegbrain
+
+asegbrainInPlot <- asegbrain + theme(legend.position = "", text = element_blank())
 ```
+
+```{r, echo = FALSE, warning= FALSE, message='hide', include = FALSE}
+# grab data
+
+## by group (original gradients)
+subroi2plot2 <- grad2plot2[grad4grp2$Network == "Subcortical",]
+## by gradients (cj)
+spins_cj_subcor <- spins_cj
+lapply(spins_cj_subcor, function(x){
+  subcort.dat <- x[ROI.idx == "Subcortical",]
+  return(subcort.dat)
+})
+
+# grab color
+subroi.col <- c(rep("#33a02c", 2), # right hippocampus
+rep("#ff7f00", 2), # right amygdala
+rep("#1f78b4", 4), # right thalamas
+rep("#b15928", 2), # right NAcc
+rep("#68228B", 2), # right GP
+rep("#B03060", 2), # right putaman
+rep("#D1AE22", 2), # right caudate
+rep("#b2df8a", 2), # left hippocampus
+rep("#EE9A49", 2), # left amygdata
+rep("#a6cee3", 4), # left thalamas
+rep("#B57957", 2), # left Nacc
+rep("#B452CD", 2), # left GP
+rep("#CD6889", 2), # left putaman
+rep("#FFD700", 2)) # left caudate
+
+
+roi.subcor.idx <- ROI.idx[ROI.idx == "Subcortical"] %>% as.data.frame
+colnames(roi.subcor.idx) <- "Network"
+roi.subcor.idx$color <- subroi.col
+```
+
+#### Group effect
+
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show='hold', out.width='50%'}
+## group labels
+G1G2.mean.control4subcort <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 1, axis2 = 2,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.5),
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+G2G3.mean.control4subcort <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 2, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.points = 0.7,
+                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.5),
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+## the arrows
+G1G2.arrows.subcorROI <- annotate("segment", 
+                            x = subroi2plot2$grad1.control, 
+                            y = subroi2plot2$grad2.control, 
+                            xend = subroi2plot2$grad1.case, 
+                            yend = subroi2plot2$grad2.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2), "color"], 
+                            alpha = 0.8, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
+
+G2G3.arrows.subcorROI <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2), "color"], 
+                            alpha = 0.8, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+
+```
+
+#### By contributions and significance to PLS
+
+
+```{r, echo = FALSE, warning= FALSE, message='hide', fig.show='hold', out.width='50%'}
+G1G2.arrows.subcorROI.impG1 <- annotate("segment", 
+                            x = subroi2plot2$grad1.control, 
+                            y = subroi2plot2$grad2.control, 
+                            xend = subroi2plot2$grad1.case, 
+                            yend = subroi2plot2$grad2.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+G1G2.arrows.subcorROI.sigG1pos <- annotate("segment", 
+                            x = subroi2plot2$grad1.control, 
+                            y = subroi2plot2$grad2.control, 
+                            xend = subroi2plot2$grad1.case, 
+                            yend = subroi2plot2$grad2.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+G1G2.arrows.subcorROI.sigG1neg <- annotate("segment", 
+                            x = subroi2plot2$grad1.control, 
+                            y = subroi2plot2$grad2.control, 
+                            xend = subroi2plot2$grad1.case, 
+                            yend = subroi2plot2$grad2.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.impG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nContribute more than average") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
+ggplot()
+G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.sigG1pos + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: positive") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
+G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.sigG1neg + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: negative") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
+
+G2G3.arrows.subcorROI.impG2 <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.arrows.subcorROI.sigG2pos <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.arrows.subcorROI.sigG2neg <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.impG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+ggplot()
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG2pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: positive") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG2neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: negative") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+
+G2G3.arrows.subcorROI.impG3 <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjimp1"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.arrows.subcorROI.sigG3pos <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+
+G2G3.arrows.subcorROI.sigG3neg <- annotate("segment", 
+                            x = subroi2plot2$grad2.control, 
+                            y = subroi2plot2$grad3.control, 
+                            xend = subroi2plot2$grad2.case, 
+                            yend = subroi2plot2$grad3.case, 
+                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
+                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 30), 
+                            linewidth = 0.8)
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.impG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+ggplot()
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG3pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG3neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+
+```
+
+<!-- ### Dimension 1 -->
+
+<!-- We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point. -->
+
+<!-- ```{r, echo = FALSE, fig.show='hold', out.width='50%'} -->
+<!-- G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim1 -->
+<!-- G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim1 -->
+<!-- G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim1 -->
+<!-- ``` -->
+
+<!-- ### Dimension 2 -->
+
+<!-- We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point. -->
+
+<!-- ```{r, echo = FALSE, fig.show='hold', out.width='50%'} -->
+<!-- G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim2 -->
+<!-- G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim2 -->
+<!-- G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim2 -->
+<!-- ``` -->
+
+<!-- ### Dimension 3 -->
+
+<!-- We need to interpret the arrows with cautious, because only the direction and the magnitude are meaningful but not the end point. -->
+
+<!-- ```{r, echo = FALSE, fig.show='hold', out.width='50%'} -->
+<!-- G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_text + G1G2.mean$zeMap_dots + G1G2.arrows.dim3 -->
+<!-- G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_text + G2G3.mean$zeMap_dots + G2G3.arrows.dim3 -->
+<!-- G1G3$zeMap_background + G1G3$zeMap_dots + G1G3.mean$zeMap_text + G1G3.mean$zeMap_dots + G1G3.arrows.dim3 -->
+<!-- ``` -->
 
 ## Relationship to symptoms {.tabset}
 

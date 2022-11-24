@@ -52,6 +52,9 @@ brain$cjsig1_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadma
 brain$cjsig2_x_mean.pos <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
 brain$cjsig2_x_mean.neg <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
 
+brain$grpdiff <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+brain$reference <- list(grad1 = loadmap, grad2 = loadmap, grad3 = loadmap)
+
 # Replace values
 gothrough <- c("raw", 
                "cjimp1_x_mean.pos", "cjimp1_x_mean.neg",
