@@ -926,7 +926,7 @@ fd.long <- lol_spins_behav %>%
   group_by(diagnostic_group) %>%
   filter(record_id %in% kept.sub) %>%
   mutate(FDgroup = ifelse(fd_mean_rest >= median(fd_mean_rest),"Top-half movers", "Bottom-half movers"),
-         diagnostic_group = ifelse(diagnostic_group == "case", "SSDs", "Control")) %>%
+         diagnostic_group = ifelse(diagnostic_group == "case", "SSDs", "Controls")) %>%
   ungroup()
 
 ## boxplot
@@ -934,7 +934,7 @@ fd.long %>% ggplot(aes(x = diagnostic_group, y = fd_mean_rest, fill = diagnostic
   geom_boxplot() +
   facet_wrap(~FDgroup) +
   scale_fill_manual(values = c("SSDs" = "darkorchid3",
-                               "Control" = "gray50"), name = "Diagnosis") +
+                               "Controls" = "gray50"), name = "Group") +
   xlab("") +
   ylab("Mean FD (mm)") +
   theme(legend.position = "bottom",
