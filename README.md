@@ -1,15 +1,5 @@
-# spin_gradients
-project for tigrlab
-
-analyses reported in this poster: https://docs.google.com/presentation/d/1D0PcIdGw67kljaTB86W8ar0PDZmEw3v6o1tRbxKrEbE/edit?usp=sharing
-
-by Lucy Bassman e:lbassman@uoguelph.ca
-
-May 20 2021 - August 27 2021
-
-Report Paper can be found at https://docs.google.com/document/d/1Qr25lIVcH24J8fKIM8v2vZNBFHagVYNCdLWrhlToU7w/edit
-
-Presentation can be found at https://docs.google.com/presentation/d/1y-f1USF6cm8X_cUrxV9pGlbY1QvMKObm_CIh7cFLqWI/edit#slide=id.ge5e02efbea_0_18
+# Gradient analysis for SPINS
+Tigrlab project
 
 Derived SPINS study data can be found at https://github.com/edickie/ssd_gradients , or locally on KIMEL server at /scratch/edickie/ssd_gradients
 
