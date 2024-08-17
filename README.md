@@ -11,3 +11,5 @@ Software used for this project includes Jupyter notebook and RStudio. Brainspace
 - HCP gradients found at `/group-HCPS1200_atlas-GlasserTian_desc-subcorticalS2_conn.pconn.nii`
 - margulies gradients found at `/tpl-fsLR_den-32k_atlas-Glasser2016Tian2019S2_desc-margulies2016_gradients.pscalar.nii`
 
+Reproducible code and functions can be found in `/code`.
+
