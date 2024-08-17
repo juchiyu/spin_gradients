@@ -1,0 +1,1841 @@
+---
+title: "7.1_PLSC_grad_GSR_combat_CV"
+author: "Ju-Chi.Yu"
+date: "7/18/2024"
+output: html_document
+---
+
+<style type="text/css">
+.main-container {
+max-width: 1800px;
+margin-left: auto;
+margin-right: auto;
+}
+</style>
+
+Grabbing SPINS gradients
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(ggseg)
+library(ggsegGlasser)
+library(broom)
+library(TExPosition)
+library(PTCA4CATA)
+library(plotly)
+library(colorspace)
+library(gridExtra)
+library(MKinfer) # for bootstrap t
+library(tableone)
+library(tidyr)
+library("RColorBrewer")
+```
+
+## Read in the SPINS big table
+
+
+```{r, echo = FALSE, warning= FALSE, message='hide'}
+
+spins_grads <- read_csv("../data/spins_gsr_RS_gradients.csv")
+
+spins_grads_num <- data.frame(spins_grads[,c(2:5,7)])
+spins_grads_num_full <- data.frame(spins_grads[,c(2:7)])
+spins_grads_wide <- reshape(spins_grads_num, idvar = "Subject", timevar = "ROI", direction = "wide")
+```
+
+## read subject data
+
+```{r, echo = FALSE, warning= FALSE, message='hide'}
+load("../data/spins_RS_2mm_GSR_GlasserTian_combated_imputed.RData")
+rm(rs_combat_cor_r, rs_combat_data_r, rs_combat_data_z)
+
+lol_spins_behav <- spins_behav_impt
+names(lol_spins_behav)
+lol_spins_behav$subject <- sub("SPN01_", "sub-", lol_spins_behav$record_id) %>% sub("_", "", .)
+
+## add motion data from the original behavioral set
+lol_original <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2022-05-30.csv') %>%
+  filter(exclude_MRI==FALSE, 
+         exclude_meanFD==FALSE, 
+         exclude_earlyTerm==FALSE) %>% as.data.frame
+lol_original$subject <- sub("SPN01_", "sub-", lol_original$record_id) %>% sub("_", "", .)
+rownames(lol_original) <- lol_original$subject
+## extract by matching the subject of lol_spins_behav
+lol_spins_behav$fd_mean_rest <- lol_original[lol_spins_behav$subject,"fd_mean_rest"]
+
+## design matrix for subjects
+spins_dx <- lol_spins_behav %>%
+  select(subject,scanner,diagnostic_group,demo_sex,demo_age_study_entry)
+spins_dx_org <- spins_dx[,-1] %>% data.frame
+
+## numeric data
+spins_behav_num <- lol_spins_behav %>% 
+  select(scog_rmet_total, scog_er40_total, #scog_mean_ea, 
+         scog_tasit1_total,
+         scog_tasit2_parsar, scog_tasit2_simpsar, scog_tasit2_sinc,
+         scog_tasit3_lie, scog_tasit3_sar, np_domain_tscore_att_vigilance,
+         np_domain_tscore_process_speed, np_domain_tscore_work_mem,
+         np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
+         np_domain_tscore_reasoning_ps, 
+         fd_mean_rest
+         #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+  ) %>% data.frame
+# colnames(spins_behav_num)
+rownames(spins_behav_num) <- lol_spins_behav$subject
+
+## participants' variables of which the effects should be regressed out
+
+var2regout <- lol_spins_behav %>%
+  select(demo_sex, demo_age_study_entry, `fd_mean_rest`, scanner) %>% data.frame
+rownames(var2regout) <- lol_spins_behav$record_id
+var2regout$demo_sex_num <- as.numeric(as.factor(var2regout$demo_sex))-1
+var2regout_num <- var2regout[,-1]
+```
+
+## Check subject overlap
+
+```{r, warning= FALSE, message='hide'}
+grad.sub <- spins_grads_wide$Subject[order(spins_grads_wide$Subject)]
+behav.sub <- lol_spins_behav$record_id[order(lol_spins_behav$record_id)]
+
+# behav.sub[behav.sub %in% grad.sub == FALSE]
+# grad.sub[grad.sub %in% behav.sub == FALSE]
+
+# complete.cases(spins_grads_wide)
+# complete.cases(lol_spins_behav)
+kept.sub <- lol_spins_behav$record_id[complete.cases(lol_spins_behav)==TRUE] # 420
+kept.sub <- kept.sub[kept.sub != "SPN01_ZHP_0150"] # non-eligible
+
+## grab the matching data
+
+behav.dat <- lol_spins_behav[kept.sub,c(6:19)]
+
+spins_grads_wide_org <- spins_grads_wide[,-1]
+rownames(spins_grads_wide_org) <- spins_grads_wide$Subject
+grad.dat <- spins_grads_wide_org[kept.sub,]
+
+## variables to regress out
+regout.dat <- var2regout_num[kept.sub,]
+
+
+```
+
+## Demographics
+
+```{r, warning= FALSE, message='hide'}
+
+behav_all <- lol_spins_behav[kept.sub,]
+
+table_one <- CreateTableOne(vars = colnames(behav_all)[4:19], strata="diagnostic_group",data=behav_all)
+
+lol_demo <- 
+  read_csv('../data/spins_lolivers_subject_info_for_grads_2022-04-21(withcomposite).csv') %>%
+  filter(exclude_MRI==FALSE, 
+         exclude_meanFD==FALSE, 
+         exclude_earlyTerm==FALSE) %>% as.data.frame
+lol_demo$subject <- sub("SPN01_", "sub-", lol_demo$record_id) %>% sub("_", "", .)
+rownames(lol_demo) <- lol_demo$record_id
+lol_demo_match <- lol_demo[kept.sub,]
+
+spins_demo <- lol_demo_match %>% 
+  select(demo_sex, demo_age_study_entry, diagnostic_group, scog_rmet_total, scog_er40_total,
+         scog_tasit1_total,
+         scog_tasit2_sinc,
+         scog_tasit2_simpsar,
+         scog_tasit2_parsar,
+         scog_tasit3_lie,
+         scog_tasit3_sar, 
+         np_domain_tscore_att_vigilance,
+         np_domain_tscore_process_speed,
+         np_domain_tscore_work_mem,
+         np_domain_tscore_verbal_learning,
+         np_domain_tscore_visual_learning,
+         np_domain_tscore_reasoning_ps, 
+         fd_mean_rest
+  ) %>% data.frame
+colnames(spins_demo)
+rownames(spins_demo) <- lol_demo_match$subject
+
+## symptoms
+behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
+  select(record_id, diagnostic_group,bsfs_total, qls_total, bprs_factor_total, sans_total_sc, 
+         bsfs_sec1_total, bsfs_sec2_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+         qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
+         qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
+         bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility, sans_sub_affective_flat_blunt, sans_sub_alogia, sans_sub_avolition_apathy, sans_sub_asocial_anhedonia)
+rownames(behav_sympt) <- behav_sympt$record_id
+
+## cpz equivalence
+cpz <- read.csv("../data/final_cpzeqv.csv")
+rownames(cpz) <- cpz$record_id
+
+## more - wtar and parental edu
+raw_behav <- read.csv("../data/SPINS_2022-03-10_1421.csv") %>% select(record_np_id, wtar_std_score, demo_highest_grade_mom, demo_highest_grade_dad) %>% mutate(edu_mom = ifelse(demo_highest_grade_mom != 101, demo_highest_grade_mom, NA),
+                                                                                                                                                               edu_dad = ifelse(demo_highest_grade_dad != 101, demo_highest_grade_dad, NA),)
+rownames(raw_behav) <- raw_behav$record_np_id
+
+## combined
+add_demo <- cbind(behav_sympt[kept.sub, ], raw_behav[kept.sub,], cpz[kept.sub,]) %>% 
+  select(diagnostic_group,cpz_eq_total,
+         edu_mom,edu_dad, wtar_std_score, 
+         bprs_factor_total, sans_total_sc, bsfs_total, qls_total)
+```
+
+## Regress out the effects
+
+```{r, warning= FALSE, message='hide'}
+table(regout.dat$demo_sex_num)
+
+behav.reg <- apply(behav.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+
+grad.reg <- apply(grad.dat, 2, function(x) lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)$residual)
+
+grad.reg2plot <- apply(grad.dat, 2, function(x){
+  model <- lm(x~regout.dat$demo_sex + regout.dat$demo_age_study_entry + regout.dat$fd_mean_rest)
+  return(model$residual + model$coefficient[1])
+} )
+```
+
+## grab some network colours
+
+```{r, warning= FALSE, message='hide'}
+networks <- read_delim("../networks.txt", 
+                       "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  select(NETWORK, NETWORKKEY, RED, GREEN, BLUE, ALPHA) %>%
+  distinct() %>%
+  add_row(NETWORK = "Subcortical", NETWORKKEY = 13, RED = 0, GREEN=0, BLUE=0, ALPHA=255) %>%
+  mutate(hex = rgb(RED, GREEN, BLUE, maxColorValue = 255)) %>%
+  arrange(NETWORKKEY)
+
+networks$hex <- darken(networks$hex, 0.2)
+```
+
+## get row and column designs
+
+```{r}
+## match ROIs to networks
+ROI.network.match <- cbind(spins_grads$ROI, spins_grads$Network) %>% unique
+ROI.idx <- ROI.network.match[,2]
+names(ROI.idx) <- ROI.network.match[,1]
+### match networks with colors
+net.col.idx <- networks$hex
+names(net.col.idx) <- networks$NETWORK
+
+## design matrix for subjects
+sub.dx <- spins_dx_org[kept.sub,]
+
+diagnostic.dx <- sub.dx$diagnostic_group %>% as.matrix
+diagnostic.dx <- recode(diagnostic.dx, !!!c("case" = "SSD"))
+diagnostic.col.idx <- c("SSD" = "darkorchid3",
+                        "control" = "gray50")
+diagnostic.col <- list()
+diagnostic.col$oc <- recode(diagnostic.dx, !!!diagnostic.col.idx) %>% as.matrix()
+diagnostic.col$gc <- diagnostic.col.idx %>% as.matrix
+
+## design matrix for columns - behavioral 
+behav.dx <- matrix(nrow = ncol(behav.dat), ncol = 1, dimnames = list(colnames(behav.dat), "type")) %>% as.data.frame
+
+behav.col <- c("scog" = "#D97614",#"#F28E2B",
+               "np" = "#3F7538",#"#59A14F",
+               "bsfs" = "#D37295")
+
+behav.dx$type <- sub("(^[^_]+).*", "\\1", colnames(behav.dat))
+behav.dx$type.col <- recode(behav.dx$type, !!!behav.col)
+
+## design matrix for columns - gradient
+grad.dx <- matrix(nrow = ncol(grad.dat), ncol = 4, dimnames = list(colnames(grad.dat), c("gradient", "ROI", "network", "network.col"))) %>% as.data.frame
+
+grad.dx$gradient <- sub("(^[^.]+).*", "\\1", colnames(grad.dat))
+grad.dx$ROI <- sub("^[^.]+.(*)", "\\1", colnames(grad.dat))
+grad.dx$network <- recode(grad.dx$ROI, !!!ROI.idx)
+grad.dx$network.col <- recode(grad.dx$network, !!!net.col.idx)
+
+## get different alpha for gradients
+grad.col.idx <- c("grad1" = "grey30",
+                  "grad2" = "grey60",
+                  "grad3" = "grey90")
+grad.dx$gradient.col <- recode(grad.dx$gradient, !!!grad.col.idx)
+
+## for heatmap
+col.heat <- colorRampPalette(c("red", "white", "blue"))(256)
+```
+
+## Run PLS-C
+
+```{r, warning= FALSE, message='hide'}
+pls.res <- tepPLS(behav.reg, grad.reg, DESIGN = sub.dx$diagnostic_group, make_design_nominal = TRUE, graphs = FALSE)
+
+pls.boot <- data4PCCAR::Boot4PLSC(behav.reg, grad.reg, scale1 = "SS1", scale2 = "SS1", nIter = 1000, nf2keep = 5, eig = TRUE)
+
+pls.boot$bootRatiosSignificant.j[abs(pls.boot$bootRatios.j) < 2.88] <- FALSE
+pls.boot$bootRatiosSignificant.i[abs(pls.boot$bootRatios.i) < 2.88] <- FALSE
+
+pls.inf <- data4PCCAR::perm4PLSC(behav.reg, grad.reg, scale1 = "SS1", scale2 = "SS1", nIter = 1000)
+# ## swith direction for dimension 3
+pls.res$TExPosition.Data$fi[,1] <- pls.res$TExPosition.Data$fi[,1]*-1
+pls.res$TExPosition.Data$fj[,1] <- pls.res$TExPosition.Data$fj[,1]*-1
+pls.res$TExPosition.Data$pdq$p[,1] <- pls.res$TExPosition.Data$pdq$p[,1]*-1
+pls.res$TExPosition.Data$pdq$q[,1] <- pls.res$TExPosition.Data$pdq$q[,1]*-1
+pls.res$TExPosition.Data$lx[,1] <- pls.res$TExPosition.Data$lx[,1]*-1
+pls.res$TExPosition.Data$ly[,1] <- pls.res$TExPosition.Data$ly[,1]*-1
+
+## Scree plot
+PlotScree(pls.res$TExPosition.Data$eigs, 
+          p.ev = pls.inf$pEigenvalues)
+
+## Print singular values
+pls.res$TExPosition.Data$pdq$Dv
+## Print eigenvalues
+pls.res$TExPosition.Data$eigs
+pls.res$TExPosition.Data$t
+## Compare the inertia to the largest possible inertia
+sum(cor(behav.dat, grad.dat)^2)
+sum(cor(behav.dat, grad.dat)^2)/(ncol(behav.dat)*ncol(grad.dat))
+```
+
+## Things to check regarding PLSC:
+
+- 10-fold cross validation
+- PLSC for HC and SSD separately
+
+### 10-fold cross validation
+
+```{r}
+# get the function
+source("functions/ProjectSupplementaryData4PLS.R")
+source("functions/PLS.kFoldCV.R")
+pls.cv <- PLS.kFoldCV(behav.reg, grad.reg, pls.res, k = 4, DESIGN = sub.dx$diagnostic_group)
+
+## check latent variables
+pls.cv$cross.validation.res$lxly.cor
+
+cor.test(pls.res$TExPosition.Data$lx[,1], pls.cv$cross.validation.res$lx.hat[,1])
+cor.test(pls.res$TExPosition.Data$ly[,1], pls.cv$cross.validation.res$ly.hat[,1])
+
+
+## check loadings for cognition on Dim 1
+cv.p <- lapply(pls.cv$cross.validation.res$p, function(x) x[,1]) %>% simplify2array()
+cv.p.long <- pivot_longer(data.frame(variable = rownames(cv.p), cv.p), 
+                          cols = starts_with("Fold"),
+                          names_to = "Fold",
+                          names_prefix = "Fold",
+                          values_to = "value")
+
+### get means and sds of loadings across the 10 folds
+cv.p.summary <- cv.p.long %>% group_by(variable) %>%
+  summarize(value = list(value)) %>%
+  group_by(variable) %>%
+  mutate(mean = mean(unlist(value)),
+         sd = sd(unlist(value)))
+
+### compute correlation between the original loadings and the mean of estimated loadings from the 10 folds
+p.cor2fold <- lapply(pls.cv$cross.validation.res$p, function(x) cor(x[,1],pls.res$TExPosition.Data$pdq$p[rownames(x),1])) %>% simplify2array()
+
+range(p.cor2fold)
+mean(p.cor2fold)
+sd(p.cor2fold)
+
+## check loadings for gradients on Dim 1
+cv.q <- lapply(pls.cv$cross.validation.res$q, function(x) x[,1]) %>% simplify2array()
+cv.q.long <- pivot_longer(data.frame(variable = rownames(cv.q), cv.q), 
+                          cols = starts_with("Fold"),
+                          names_to = "Fold",
+                          names_prefix = "Fold",
+                          values_to = "value")
+
+### get means and sds of loadings across the 10 folds
+cv.q.summary <- cv.q.long %>% group_by(variable) %>%
+  summarize(value = list(value)) %>%
+  group_by(variable) %>%
+  mutate(mean = mean(unlist(value)),
+         sd = sd(unlist(value)))
+
+### compute correlation between the original loadings and the mean of estimated loadings from the 10 folds
+q.cor2fold <- lapply(pls.cv$cross.validation.res$q, function(x) cor(x[,1],pls.res$TExPosition.Data$pdq$q[rownames(x),1])) %>% simplify2array()
+
+range(q.cor2fold)
+mean(q.cor2fold)
+sd(q.cor2fold)
+
+## check explained variance
+cv.t <- lapply(pls.cv$cross.validation.res$eig, function(x) x[1]/sum(x)) %>% simplify2array
+range(cv.t)
+sd(cv.t)
+mean(cv.t)
+
+```
+
+### separate PLSC for HC and SSD
+
+```{r}
+## Separate data by groups
+### get subject list
+kept.sub.HC <- add_demo %>% filter(diagnostic_group == "control") %>% rownames()
+kept.sub.SSD <- add_demo %>% filter(diagnostic_group == "case") %>% rownames()
+### get the variables to be regressed out
+regout.dat.HC <- regout.dat[kept.sub.HC,]
+regout.dat.SSD <- regout.dat[kept.sub.SSD,]
+### get the subset of data
+behav.dat.HC <- behav.dat[kept.sub.HC,]
+behav.dat.SSD <- behav.dat[kept.sub.SSD,]
+grad.dat.HC <- grad.dat[kept.sub.HC,]
+grad.dat.SSD <- grad.dat[kept.sub.SSD,]
+
+
+## regressing out motion
+
+### create a function to use
+Reg4Spins <- function(data, regdat){
+  out <- apply(data, 2, function(x) lm(x~regdat$demo_sex + regdat$demo_age_study_entry + regdat$fd_mean_rest)$residual)
+  return(out)
+}
+
+### regressed data for HC
+behav.reg.HC <- Reg4Spins(behav.dat.HC, regout.dat.HC)
+grad.reg.HC <- Reg4Spins(grad.dat.HC, regout.dat.HC)
+
+### regressed data for SSD
+behav.reg.SSD <- Reg4Spins(behav.dat.SSD, regout.dat.SSD)
+grad.reg.SSD <- Reg4Spins(grad.dat.SSD, regout.dat.SSD)
+```
+
+```{r}
+pls.res.HC <- tepPLS(behav.reg.HC, grad.reg.HC, graphs = FALSE)
+pls.res.SSD <- tepPLS(behav.reg.SSD, grad.reg.SSD, graphs = FALSE)
+
+## swith direction for dimension 1
+pls.res.HC$TExPosition.Data$fi[,1] <- pls.res.HC$TExPosition.Data$fi[,1]*-1
+pls.res.HC$TExPosition.Data$fj[,1] <- pls.res.HC$TExPosition.Data$fj[,1]*-1
+pls.res.HC$TExPosition.Data$pdq$p[,1] <- pls.res.HC$TExPosition.Data$pdq$p[,1]*-1
+pls.res.HC$TExPosition.Data$pdq$q[,1] <- pls.res.HC$TExPosition.Data$pdq$q[,1]*-1
+pls.res.HC$TExPosition.Data$lx[,1] <- pls.res.HC$TExPosition.Data$lx[,1]*-1
+pls.res.HC$TExPosition.Data$ly[,1] <- pls.res.HC$TExPosition.Data$ly[,1]*-1
+
+## swith direction for dimension 1
+pls.res.SSD$TExPosition.Data$fi[,1] <- pls.res.SSD$TExPosition.Data$fi[,1]*-1
+pls.res.SSD$TExPosition.Data$fj[,1] <- pls.res.SSD$TExPosition.Data$fj[,1]*-1
+pls.res.SSD$TExPosition.Data$pdq$p[,1] <- pls.res.SSD$TExPosition.Data$pdq$p[,1]*-1
+pls.res.SSD$TExPosition.Data$pdq$q[,1] <- pls.res.SSD$TExPosition.Data$pdq$q[,1]*-1
+pls.res.SSD$TExPosition.Data$lx[,1] <- pls.res.SSD$TExPosition.Data$lx[,1]*-1
+pls.res.SSD$TExPosition.Data$ly[,1] <- pls.res.SSD$TExPosition.Data$ly[,1]*-1
+
+### bootstrap for HC
+pls.boot.HC <- data4PCCAR::Boot4PLSC(behav.reg.HC, grad.reg.HC, scale1 = "SS1", scale2 = "SS1", nIter = 1000, nf2keep = 5, eig = TRUE)
+
+# pls.boot.HC$bootRatiosSignificant.j[abs(pls.boot.HC$bootRatios.j) < 2.88] <- FALSE
+# pls.boot.HC$bootRatiosSignificant.i[abs(pls.boot.HC$bootRatios.i) < 2.88] <- FALSE
+
+### bootstrap for SSD
+pls.boot.SSD <- data4PCCAR::Boot4PLSC(behav.reg.SSD, grad.reg.SSD, scale1 = "SS1", scale2 = "SS1", nIter = 1000, nf2keep = 5, eig = TRUE)
+
+# pls.boot.SSD$bootRatiosSignificant.j[abs(pls.boot.SSD$bootRatios.j) < 2.88] <- FALSE
+# pls.boot.SSD$bootRatiosSignificant.i[abs(pls.boot.SSD$bootRatios.i) < 2.88] <- FALSE
+
+### Permutation
+pls.inf.HC <- data4PCCAR::perm4PLSC(behav.reg.HC, grad.reg.HC, scale1 = "SS1", scale2 = "SS1", nIter = 1000)
+pls.inf.SSD <- data4PCCAR::perm4PLSC(behav.reg.SSD, grad.reg.SSD, scale1 = "SS1", scale2 = "SS1", nIter = 1000)
+```
+
+#### PLSC for HC
+
+```{r}
+PlotScree(pls.res.HC$TExPosition.Data$eigs,
+          p.ev = pls.inf.HC$pEigenvalues, 
+          plotKaiser = TRUE)
+
+## Loadings
+loadings2plot.HC <- pls.res.HC$TExPosition.Data$pdq$p[,1]
+names(loadings2plot.HC) <- c("RMET", "ER40", 
+                             "TASIT 1", 
+                             "TASIT 2 - sincere",
+                             "TASIT 2 -\nsimple sarcasm", 
+                             "TASIT 2 -\nparadoxical sarcasm",
+                             "TASIT 3 - lies",
+                             "TASIT 3 - sarcasm",
+                             "Processing speed",
+                             "Attention/Vigilance",
+                             "Working memory",
+                             "Verbal learning",
+                             "Visual learning",
+                             "Reasoning and\nproblem solving")
+fig.s6a <- PrettyBarPlot2(loadings2plot.HC,
+                          threshold = 0, 
+                          color4bar = ifelse(pls.boot.HC$bootRatiosSignificant.i[,1] == TRUE, behav.dx$type.col, "grey90"),
+                          horizontal = TRUE, main = "Loadings (HC) - social and non-social cognition")+ 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))
+
+```
+
+```{r}
+### get color and design
+col.grad1 <- grad.dx$network.col[which(grad.dx$gradient == "grad1")]
+col4grad1 <- col.grad1[order(dx.grad1)]
+dx.grad1 <- grad.dx$network[which(grad.dx$gradient == "grad1")]
+col.grad2 <- grad.dx$network.col[which(grad.dx$gradient == "grad2")]
+col4grad2 <- col.grad2[order(dx.grad2)]
+dx.grad2 <- grad.dx$network[which(grad.dx$gradient == "grad2")]
+col.grad3 <- grad.dx$network.col[which(grad.dx$gradient == "grad3")]
+col4grad3 <- col.grad3[order(dx.grad3)]
+dx.grad3 <- grad.dx$network[which(grad.dx$gradient == "grad3")]
+```
+
+
+```{r, include = FALSE}
+## reorganize data frame
+# factor scores
+HC.pq <- data.frame(grad.dx[,1:4], pls.res.HC$TExPosition.Data$fj[,1:4], colMeans(grad.dat))
+colnames(HC.pq)[5:9] <- c(paste0("fj", c(1:4)), "raw")
+
+# filtered by significance
+HC.pq.sig <- HC.pq[,5:8]
+HC.pq.sig[pls.boot.HC$bootRatiosSignificant.j[,1:4] == FALSE] <- 0
+HC.pq[,10:13] <- HC.pq.sig
+colnames(HC.pq)[10:13] <- c(paste0("fj.sig", c(1:4)))
+HC.pq[,14] <- pls.boot$bootRatiosSignificant.j[,1]
+colnames(HC.pq)[14] <- "SigInAll.fj1"
+
+# Organize data
+pq_for_plot.HC <- HC.pq %>% 
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)))
+
+## Organize subcortical data
+pq_for_plot_sub.HC <- pq_for_plot.HC %>%
+  filter(network == "Subcortical") %>%
+  ### Mapping atlases ----
+mutate(Aseg = rep(c(rep("Right-Hippocampus", 2), # right hippocampus
+                    rep("Right-Amygdala", 2), # right amygdala
+                    rep("Right-Thalamus-Proper", 4), # right thalamas
+                    rep("Right-Nucleus-Accumbuns", 2), # right NAcc
+                    rep("Right-Pallidum", 2), # right GP
+                    rep("Right-Putamen", 2), # right putaman
+                    rep("Right-Caudate", 2), # right caudate
+                    rep("Left-Hippocampus", 2), # left hippocampus
+                    rep("Left-Amygdala", 2), # left amygdata
+                    rep("Left-Thalamus-Proper", 4), # left thalamas
+                    rep("Left-Nucleus-Accumbuns", 2), # left Nacc
+                    rep("Left-Pallidum", 2), # left GP
+                    rep("Left-Putamen", 2), # left putaman
+                    rep("Left-Caudate", 2)), # left caudate
+                  each = 3)) %>%
+  ungroup() %>%
+  group_by(network, gradient, Aseg) %>%
+  filter(!(Aseg %in% c("Left-Nucleus-Accumbuns", "Right-Nucleus-Accumbuns"))) %>%
+  as.data.frame()
+
+### plot T in subcortical ----
+for (grad in c(1:3)){
+  pq_sub.HC <- pq_for_plot_sub.HC %>%
+    as.data.frame() %>%
+    select(gradient, network, fj1, fj.sig1, SigInAll.fj1, label = Aseg) %>%
+    group_by(label, gradient) %>%
+    filter(gradient == paste0("grad",grad))
+  
+  pq_aseg_sub.G.HC <- aseg %>%
+    as.tibble %>% left_join(pq_sub.HC)
+  pq_aseg_sub.G.HC$gradient <- paste0("grad",grad)
+  
+  if (grad == 1){
+    pq_aseg_sub.HC <- pq_aseg_sub.G.HC
+  }else{
+    pq_aseg_sub.HC <- rbind(pq_aseg_sub.HC, pq_aseg_sub.G.HC)
+  }
+}
+
+pqAseg.test.HC <- pq_aseg_sub.HC %>% as_brain_atlas()
+```
+
+##### fj in brain - all
+
+```{r, echo = FALSE}
+
+pqbrain.HC <- pq_for_plot.HC %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = fj1),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "fj", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1), guide = "none") +
+  ggtitle(sprintf("Controls: Dimension 1 (%.02f%% of variance)", pls.res.HC$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+pqbrain.subcort.HC <- ggplot() +
+  geom_brain(atlas = pqAseg.test.HC,
+             colour = "grey30",
+             mapping = aes(fill = fj1),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, 
+             labeller = labeller(gradient = c("grad1" = "",
+                                              "grad2" = "",
+                                              "grad3" = "")
+             )) +
+  scale_fill_distiller(name = "Loadings\n", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1.01,0,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+pqbrain.HC
+pqbrain.subcort.HC
+fig.s6b <- grid.arrange(grobs = list(pqbrain.HC, pqbrain.subcort.HC),
+                        ncol = 3,
+                        nrow = 1,
+                        widths = c(0.72, 0.03,0.27),
+                        layout_matrix = rbind(c(1, NA, 2)))
+```
+
+##### fj in brain - masked
+
+```{r, echo = FALSE}
+
+pqbrain.HC.masked <- pq_for_plot.HC %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = ifelse(SigInAll.fj1, fj1, 0)),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "fj", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1), guide = "none") +
+  ggtitle(sprintf("Controls: ROIs significant in the overall PLSC", pls.res.HC$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+pqbrain.subcort.HC.masked <- ggplot() +
+  geom_brain(atlas = pqAseg.test.HC,
+             colour = "grey30",
+             mapping = aes(fill = ifelse(SigInAll.fj1, fj1, 0)),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, 
+             labeller = labeller(gradient = c("grad1" = "",
+                                              "grad2" = "",
+                                              "grad3" = "")
+             )) +
+  scale_fill_distiller(name = "Loadings\n", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1.01,0,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+pqbrain.HC.masked
+pqbrain.subcort.HC.masked
+
+fig.s6c <- grid.arrange(grobs = list(pqbrain.HC.masked, pqbrain.subcort.HC.masked),
+                        ncol = 3,
+                        nrow = 1,
+                        widths = c(0.72, 0.03,0.27),
+                        layout_matrix = rbind(c(1, NA, 2)))
+
+```
+
+#### PLSC for SSD
+
+```{r}
+PlotScree(pls.res.SSD$TExPosition.Data$eigs,
+          p.ev = pls.inf.SSD$pEigenvalues, 
+          plotKaiser = TRUE)
+
+## Loadings
+loadings2plot.SSD <- pls.res.SSD$TExPosition.Data$pdq$p[,1]
+names(loadings2plot.SSD) <- c("RMET", "ER40", 
+                              "TASIT 1", 
+                              "TASIT 2 - sincere",
+                              "TASIT 2 -\nsimple sarcasm", 
+                              "TASIT 2 -\nparadoxical sarcasm",
+                              "TASIT 3 - lies",
+                              "TASIT 3 - sarcasm",
+                              "Processing speed",
+                              "Attention/Vigilance",
+                              "Working memory",
+                              "Verbal learning",
+                              "Visual learning",
+                              "Reasoning and\nproblem solving")
+fig.s6d <- PrettyBarPlot2(loadings2plot.SSD,
+                          threshold = 0, 
+                          color4bar = ifelse(pls.boot.SSD$bootRatiosSignificant.i[,1] == TRUE, behav.dx$type.col, "grey90"),
+                          horizontal = TRUE, main = "Loadings (SSDs) - social and non-social cognition")+ 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))
+```
+
+```{r, include = FALSE}
+## reorganize data frame
+# factor scores
+SSD.pq <- data.frame(grad.dx[,1:4], pls.res.SSD$TExPosition.Data$fj[,1:4], colMeans(grad.dat))
+colnames(SSD.pq)[5:9] <- c(paste0("fj", c(1:4)), "raw")
+
+# filtered by significance
+SSD.pq.sig <- SSD.pq[,5:8]
+SSD.pq.sig[pls.boot.SSD$bootRatiosSignificant.j[,1:4] == FALSE] <- 0
+SSD.pq[,10:13] <- SSD.pq.sig
+colnames(SSD.pq)[10:13] <- c(paste0("fj.sig", c(1:4)))
+SSD.pq[,14] <- pls.boot$bootRatiosSignificant.j[,1]
+colnames(SSD.pq)[14] <- "SigInAll.fj1"
+
+# Organize data
+pq_for_plot.SSD <- SSD.pq %>% 
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)))
+
+## Organize subcortical data
+pq_for_plot_sub.SSD <- pq_for_plot.SSD %>%
+  filter(network == "Subcortical") %>%
+  ### Mapping atlases ----
+mutate(Aseg = rep(c(rep("Right-Hippocampus", 2), # right hippocampus
+                    rep("Right-Amygdala", 2), # right amygdala
+                    rep("Right-Thalamus-Proper", 4), # right thalamas
+                    rep("Right-Nucleus-Accumbuns", 2), # right NAcc
+                    rep("Right-Pallidum", 2), # right GP
+                    rep("Right-Putamen", 2), # right putaman
+                    rep("Right-Caudate", 2), # right caudate
+                    rep("Left-Hippocampus", 2), # left hippocampus
+                    rep("Left-Amygdala", 2), # left amygdata
+                    rep("Left-Thalamus-Proper", 4), # left thalamas
+                    rep("Left-Nucleus-Accumbuns", 2), # left Nacc
+                    rep("Left-Pallidum", 2), # left GP
+                    rep("Left-Putamen", 2), # left putaman
+                    rep("Left-Caudate", 2)), # left caudate
+                  each = 3)) %>%
+  ungroup() %>%
+  group_by(network, gradient, Aseg) %>%
+  filter(!(Aseg %in% c("Left-Nucleus-Accumbuns", "Right-Nucleus-Accumbuns"))) %>%
+  as.data.frame()
+
+### plot T in subcortical ----
+for (grad in c(1:3)){
+  pq_sub.SSD <- pq_for_plot_sub.SSD %>%
+    as.data.frame() %>%
+    select(gradient, network, SigInAll.fj1, fj1, fj.sig1, label = Aseg) %>%
+    group_by(label, gradient) %>%
+    filter(gradient == paste0("grad",grad))
+  
+  pq_aseg_sub.G.SSD <- aseg %>%
+    as.tibble %>% left_join(pq_sub.SSD)
+  pq_aseg_sub.G.SSD$gradient <- paste0("grad",grad)
+  
+  if (grad == 1){
+    pq_aseg_sub.SSD <- pq_aseg_sub.G.SSD
+  }else{
+    pq_aseg_sub.SSD <- rbind(pq_aseg_sub.SSD, pq_aseg_sub.G.SSD)
+  }
+}
+
+pqAseg.test.SSD <- pq_aseg_sub.SSD %>% as_brain_atlas()
+```
+
+##### fj in brain - all
+
+```{r, echo = FALSE}
+pqbrain.SSD <- pq_for_plot.SSD %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = fj1),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "fj", 
+                       palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1), guide = "none") +
+  ggtitle(sprintf("SSDs: Dimension 1 (%.02f%% of variance)", pls.res.SSD$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+pqbrain.subcort.SSD <- ggplot() +
+  geom_brain(atlas = pqAseg.test.SSD,
+             colour = "grey30",
+             mapping = aes(fill = fj1),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = "Loadings\n", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1.01,0,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+pqbrain.SSD
+pqbrain.subcort.SSD
+
+fig.s6e <- grid.arrange(grobs = list(pqbrain.SSD, pqbrain.subcort.SSD),
+                        ncol = 3,
+                        nrow = 1,
+                        widths = c(0.72, 0.03,0.27),
+                        layout_matrix = rbind(c(1, NA, 2)))
+```
+
+##### fj in brain - masked
+
+```{r, echo = FALSE}
+pqbrain.SSD.masked <- pq_for_plot.SSD %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = ifelse(SigInAll.fj1, fj1, 0)),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "fj", 
+                       palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1), guide = "none") +
+  ggtitle(sprintf("SSDs: ROIs significant in the overall PLSC", pls.res.SSD$TExPosition.Data$t[1])) + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank()) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+pqbrain.subcort.SSD.masked <- ggplot() +
+  geom_brain(atlas = pqAseg.test.SSD,
+             colour = "grey30",
+             mapping = aes(fill = ifelse(SigInAll.fj1, fj1, 0)),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = "Loadings\n", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1.01,0,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+pqbrain.SSD.masked
+pqbrain.subcort.SSD.masked
+fig.s6f <- grid.arrange(grobs = list(pqbrain.SSD.masked, pqbrain.subcort.SSD.masked),
+                        ncol = 3,
+                        nrow = 1,
+                        widths = c(0.72, 0.03,0.27),
+                        layout_matrix = rbind(c(1, NA, 2)))
+```
+## Combine
+```{r}
+png(filename = "results/FigS6fromR.png", width = 30, height = 35, units = 'cm', res = 600)
+grid.arrange(grobs = list(fig.s6a, fig.s6b, fig.s6c, fig.s6d, fig.s6e, fig.s6f),
+             widths = c(0.5, 0.5),
+             heights = c(0.4,0.3,0.30),
+             layout_matrix = rbind(c(1,4),
+                                   c(2,5),
+                                   c(3,6)))
+dev.off()
+```
+
+
+## Other things to check
+
+- What does the gradient compression looks like if we only look at the top vs. the bottom mover within HC and SSD
+
+- How is gradient relate to CPZ-equivalence
+
+### Find the two groups
+
+```{r}
+## highFD
+fd.dat.highFD <- lol_spins_behav %>%
+  select(record_id, diagnostic_group, fd_mean_rest) %>%
+  group_by(diagnostic_group) %>%
+  filter(fd_mean_rest >= median(fd_mean_rest),
+         record_id %in% kept.sub) %>%
+  ungroup()
+
+### descriptive
+highfd.stat <- fd.dat.highFD %>%
+  group_by(diagnostic_group) %>%
+  summarize(across(where(is.numeric), 
+                   list(mean = ~mean(.x),
+                        sd = ~sd(.x),
+                        min = ~min(.x),
+                        max = ~max(.x))))
+
+### t.test
+high.ssd <- fd.dat.highFD[fd.dat.highFD$diagnostic_group == "case","fd_mean_rest"]$fd_mean_rest
+high.hc <- fd.dat.highFD[fd.dat.highFD$diagnostic_group == "control","fd_mean_rest"]$fd_mean_rest
+
+t.test(high.ssd, high.hc, 
+       alternative = "two.sided",
+       var.equal = FALSE)
+
+## low FD
+
+fd.dat.lowFD <- lol_spins_behav %>%
+  select(record_id, diagnostic_group, fd_mean_rest) %>%
+  group_by(diagnostic_group) %>%
+  filter(fd_mean_rest < median(fd_mean_rest),
+         record_id %in% kept.sub) %>%
+  ungroup()
+
+### descriptive
+lowfd.stat <- fd.dat.lowFD %>%
+  group_by(diagnostic_group) %>%
+  summarize(across(where(is.numeric), 
+                   list(mean = ~mean(.x),
+                        sd = ~sd(.x),
+                        min = ~min(.x),
+                        max = ~max(.x))))
+
+### t.test
+low.ssd <- fd.dat.lowFD[fd.dat.lowFD$diagnostic_group == "case","fd_mean_rest"]$fd_mean_rest
+low.hc <- fd.dat.lowFD[fd.dat.lowFD$diagnostic_group == "control","fd_mean_rest"]$fd_mean_rest
+
+t.test(low.ssd, low.hc, 
+       alternative = "two.sided",
+       var.equal = FALSE)
+
+
+```
+
+#### boxplot
+
+```{r}
+fd.long <- lol_spins_behav %>%
+  select(record_id, diagnostic_group, fd_mean_rest) %>%
+  group_by(diagnostic_group) %>%
+  filter(record_id %in% kept.sub) %>%
+  mutate(FDgroup = ifelse(fd_mean_rest >= median(fd_mean_rest),"Top-half movers", "Bottom-half movers"),
+         diagnostic_group = ifelse(diagnostic_group == "case", "SSDs", "Control")) %>%
+  ungroup()
+
+## boxplot
+fd.long %>% ggplot(aes(x = diagnostic_group, y = fd_mean_rest, fill = diagnostic_group)) +
+  geom_boxplot() +
+  facet_wrap(~FDgroup) +
+  scale_fill_manual(values = c("SSDs" = "darkorchid3",
+                               "Control" = "gray50"), name = "Diagnosis") +
+  xlab("") +
+  ylab("Mean FD (mm)") +
+  theme(legend.position = "bottom",
+        text = element_text(size = 12))
+```
+
+
+### Extracted the two groups from the gradients (after regressed out age, sex, and fd)
+
+```{r}
+grad.reg.highFD <- grad.reg[fd.dat.highFD$record_id,]
+grad.reg.lowFD <- grad.reg[fd.dat.lowFD$record_id,]
+
+grad.reg2plot.highFD <- grad.reg2plot[fd.dat.highFD$record_id,]
+grad.reg2plot.lowFD <- grad.reg2plot[fd.dat.lowFD$record_id,]
+```
+
+### High FD - Group difference 
+
+#### for brain
+
+```{r}
+grad.reg.long.highFD <- data.frame(t(grad.reg2plot.highFD), grad.dx[,1:3])
+grad.reg.wide.highFD <- grad.reg.long.highFD %>% pivot_longer(cols = "SPN01_CMH_0001":"SPN01_ZHP_0168",
+                                                              names_to = "Subject",
+                                                              names_prefix = "",
+                                                              values_to = "value") 
+grad.reg.wide4plot.highFD <- grad.reg.wide.highFD %>% pivot_wider(names_from = "gradient",
+                                                                  names_prefix = "",
+                                                                  values_from = "value",) %>% data.frame
+grad.reg.wide4plot.highFD$Subject <- sub("sub.", "sub-", grad.reg.wide4plot.highFD$Subject)
+names(grad.reg.wide4plot.highFD)[2] <- "Network"
+
+## compute the difference with GLM ----
+grad.reg.wide.diff.highFD <- grad.reg.wide.highFD
+grad.reg.wide.diff.highFD$diagnostic_group <- sub.dx[grad.reg.wide.highFD$Subject,"diagnostic_group"]
+
+all_roi_results.highFD <- grad.reg.wide.diff.highFD %>%
+  select(-Subject) %>%
+  ungroup() %>%
+  group_by(network, gradient, ROI) %>%
+  do(tidy(lm(value ~ diagnostic_group, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+## results from t-test filtered by p_FDR ----
+all_roi_test.highFD <- all_roi_results.highFD %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+## results from t-test filtered by p_FDR (subcortical) ----
+grad.reg.wide.sub.highFD <- grad.reg.wide.diff.highFD %>%
+  select(-Subject) %>%
+  filter(network == "Subcortical") %>%
+  ### Mapping atlases ----
+mutate(Aseg = rep(rep(c(rep("Right-Hippocampus", 2), # right hippocampus
+                        rep("Right-Amygdala", 2), # right amygdala
+                        rep("Right-Thalamus-Proper", 4), # right thalamas
+                        rep("Right-Nucleus-Accumbuns", 2), # right NAcc
+                        rep("Right-Pallidum", 2), # right GP
+                        rep("Right-Putamen", 2), # right putaman
+                        rep("Right-Caudate", 2), # right caudate
+                        rep("Left-Hippocampus", 2), # left hippocampus
+                        rep("Left-Amygdala", 2), # left amygdata
+                        rep("Left-Thalamus-Proper", 4), # left thalamas
+                        rep("Left-Nucleus-Accumbuns", 2), # left Nacc
+                        rep("Left-Pallidum", 2), # left GP
+                        rep("Left-Putamen", 2), # left putaman
+                        rep("Left-Caudate", 2)), # left caudate
+                      each = 3), each = 210)) %>%
+  ungroup() %>%
+  group_by(network, gradient, Aseg) %>%
+  do(tidy(lm(value ~ diagnostic_group, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+all_subroi_results.highFD <- grad.reg.wide.sub.highFD %>% 
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(!(Aseg %in% c("Left-Nucleus-Accumbuns", "Right-Nucleus-Accumbuns"))) %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+### plot T in subcortical ----
+for (grad in c(1:3)){
+  gradient_raw_data_sub.highFD.G <- all_subroi_results.highFD %>%
+    as.data.frame() %>%
+    select(gradient, network, statistic.cor, label = Aseg) %>%
+    group_by(label, gradient) %>%
+    filter(gradient == paste0("grad",grad))
+  
+  gradient_raw_aseg_sub.highFD.G <- aseg %>%
+    as.tibble %>% left_join(gradient_raw_data_sub.highFD.G)
+  gradient_raw_aseg_sub.highFD.G$gradient <- paste0("grad",grad)
+  
+  if (grad == 1){
+    gradient_raw_aseg_sub.highFD <- gradient_raw_aseg_sub.highFD.G
+  }else{
+    gradient_raw_aseg_sub.highFD <- rbind(gradient_raw_aseg_sub.highFD, gradient_raw_aseg_sub.highFD.G)
+  }
+}
+
+gradAseg.test.highFD <- gradient_raw_aseg_sub.highFD %>% as_brain_atlas()
+```
+
+#### for scatter plot
+
+```{r}
+## organize data - ROI & group average ----
+spins_grad_everything.highFD <- merge(grad.reg.wide4plot.highFD, sub.dx, by.x = "Subject", by.y = 0)
+
+spins_mean_bygrp.highFD<- spins_grad_everything.highFD %>% 
+  group_by(ROI, Network,diagnostic_group) %>% 
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame %>%
+  reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+
+spins_sd_bygrp.highFD<- spins_grad_everything.highFD %>% 
+  group_by(ROI, Network,diagnostic_group) %>% 
+  dplyr::summarize(across(starts_with("grad"), ~ sd(.x, na.rm = TRUE))) %>%
+  as.data.frame %>%
+  reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+
+grad2plot2.highFD <- spins_mean_bygrp.highFD[,c(3:8)]
+grad4grp2.highFD <- unique(spins_mean_bygrp.highFD[,c(1:2)]) %>% as.data.frame
+rownames(grad4grp2.highFD) <- grad4grp2.highFD$ROI
+rownames(grad2plot2.highFD) <- grad4grp2.highFD$ROI
+
+## organize data - network mean by groups ----
+net_mean_bygrp.highFD <- spins_mean_bygrp.highFD %>%
+  group_by(Network) %>%
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame
+rownames(net_mean_bygrp.highFD) <- net_mean_bygrp.highFD$Network
+
+## organize data - ROI average ----
+spins_mean.highFD <- getMeans(grad.reg.wide4plot.highFD[,4:6], grad.reg.wide4plot.highFD$ROI)
+grad4grp.highFD <- unique(grad.reg.wide4plot.highFD[,c(1,2)]) %>% data.frame
+rownames(grad4grp.highFD) <- grad4grp.highFD$ROI
+
+
+## get colors ----
+roi.col <- list()
+roi.col$oc <- recode(grad4grp.highFD$Network, !!!net.col.idx) %>% as.matrix
+rownames(roi.col$oc) <- grad4grp.highFD$ROI
+roi.col$gc <- as.matrix(net.col.idx)
+```
+
+#### Figures
+
+##### Compute group differences
+```{r}
+group_diff_grad.highFD <- all_roi_test.highFD %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+group_diff_grad1.highFD <- group_diff_grad.highFD %>% filter(statistic.cor != 0, gradient == "grad1")
+group_diff_grad2.highFD <- group_diff_grad.highFD %>% filter(statistic.cor != 0, gradient == "grad2")
+group_diff_grad3.highFD <- group_diff_grad.highFD %>% filter(statistic.cor != 0, gradient == "grad3") 
+```
+
+
+##### Brain: Group difference
+```{r}
+## plot the t statistics (filtered by FDR test)
+gradient_test_brain.highFD <- group_diff_grad.highFD %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = statistic.cor),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "F value", palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1), guide = "none") +
+  ggtitle("Gradients: Controls > SSDs in top-half movers\n(significant results; FDR-corrected)")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        strip.text = element_text(hjust = 0.70),
+        plot.margin=unit(c(1,-0.5,1,-0.1), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+
+## plot the t statistics (filtered by FDR test) subcortical
+asegbrain.test.highFD <- ggplot() +
+  geom_brain(atlas = gradAseg.test.highFD,
+             colour = "grey30",
+             mapping = aes(fill = statistic.cor),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = expression(~~italic(t)), palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1)) +
+  ggtitle("\n") +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1,1,1,-0.5), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+fig.s7a <- grid.arrange(grobs = list(gradient_test_brain.highFD, asegbrain.test.highFD), 
+                        ncol = 2,
+                        widths = c(0.72, 0.28))
+
+```
+
+##### Scatter plot: Group differences
+
+```{r}
+## Gradients 1 & 2
+### network labels at the mean
+G1G2.mean.control.highFD <- createFactorMap(net_mean_bygrp.highFD[,5:7],
+                                            axis1 = 1, axis2 = 2,
+                                            col.points = roi.col$gc[net_mean_bygrp.highFD$Network,],
+                                            col.labels = roi.col$gc[net_mean_bygrp.highFD$Network,],
+                                            cex = 2,
+                                            text.cex = 3,
+                                            alpha.labels = 0.7,
+                                            alpha.points = 0.7,
+                                            col.background = "grey96",
+                                            col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad1.highFD <- spins_mean_bygrp.highFD[which(spins_mean_bygrp.highFD$ROI %in% group_diff_grad1.highFD$ROI),]
+
+G1G2.roi.control.highFD <- createFactorMap(spins_mean_siggrad1.highFD[,6:8],#spins_mean_bygrp[,6:8],
+                                           axis1 = 1, axis2 = 2,
+                                           col.points = roi.col$oc[spins_mean_siggrad1.highFD$ROI,],
+                                           alpha.points = 0.1, 
+                                           col.background = "grey96",
+                                           col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad1.highFD <- grad2plot2.highFD[which(rownames(grad2plot2.highFD) %in% group_diff_grad1.highFD$ROI),]
+
+G1G2.arrows.roi.highFD <- annotate("segment", 
+                                   x = grad2plot2.siggrad1.highFD$grad1.control, 
+                                   y = grad2plot2.siggrad1.highFD$grad2.control, 
+                                   xend = grad2plot2.siggrad1.highFD$grad1.case, 
+                                   yend = grad2plot2.siggrad1.highFD$grad2.case, 
+                                   color = roi.col$oc[rownames(grad2plot2.siggrad1.highFD),], 
+                                   alpha = 0.5, 
+                                   arrow = arrow(length = unit(0.2, "cm"), 
+                                                 type = "closed", angle = 20), 
+                                   linewidth = 0.8)
+
+### Assemble
+fig.s7b <- G1G2.roi.control.highFD$zeMap_background + G1G2.mean.control.highFD$zeMap_text + G1G2.arrows.roi.highFD + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradient 1 of top-half movers:\nFrom Controls to SSDs")
+
+## Gradients 2
+### network labels
+G2G3.mean.control.highFD <- createFactorMap(net_mean_bygrp.highFD[,5:7],
+                                            axis1 = 2, axis2 = 3,
+                                            col.points = roi.col$gc[net_mean_bygrp.highFD$Network,],
+                                            col.labels = roi.col$gc[net_mean_bygrp.highFD$Network,],
+                                            cex = 2,
+                                            text.cex = 3,
+                                            alpha.labels = 0.7,
+                                            alpha.points = 0.7,
+                                            col.background = "grey96",
+                                            col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad2.highFD <- spins_mean_bygrp.highFD[which(spins_mean_bygrp.highFD$ROI %in% group_diff_grad2.highFD$ROI),]
+
+G2.roi.control.highFD <- createFactorMap(spins_mean_siggrad2.highFD[,6:8],
+                                         axis1 = 2, axis2 = 3,
+                                         col.points = roi.col$oc[spins_mean_siggrad2.highFD$ROI,],
+                                         alpha.points = 0.1, 
+                                         col.background = "grey96",
+                                         col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad2.highFD <- grad2plot2.highFD[which(rownames(grad2plot2.highFD) %in% group_diff_grad2.highFD$ROI),]
+
+G2.arrows.roi.highFD <- annotate("segment", 
+                                 x = grad2plot2.siggrad2.highFD$grad2.control, 
+                                 y = grad2plot2.siggrad2.highFD$grad3.control, 
+                                 xend = grad2plot2.siggrad2.highFD$grad2.case, 
+                                 yend = grad2plot2.siggrad2.highFD$grad3.case, 
+                                 color = roi.col$oc[rownames(grad2plot2.siggrad2.highFD),], 
+                                 alpha = 0.5, 
+                                 arrow = arrow(length = unit(0.2, "cm"), 
+                                               type = "closed", angle = 20), 
+                                 linewidth = 0.8)
+
+### Assemble
+fig.s7c <- G2.roi.control.highFD$zeMap_background + G2G3.mean.control.highFD$zeMap_text + G2.arrows.roi.highFD + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 2 of top-half movers: From Controls to SSDs")
+
+## Gradients 3
+### Points from controls
+spins_mean_siggrad3.highFD <- spins_mean_bygrp.highFD[which(spins_mean_bygrp.highFD$ROI %in% group_diff_grad3.highFD$ROI),]
+
+G3.roi.control.highFD <- createFactorMap(spins_mean_siggrad3.highFD[,6:8],
+                                         axis1 = 2, axis2 = 3,
+                                         col.points = roi.col$oc[spins_mean_siggrad3.highFD$ROI,],
+                                         alpha.points = 0.1, 
+                                         col.background = "grey96",
+                                         col.axes = "grey30",
+                                         constraints = lapply(minmaxHelper(spins_mean_siggrad3.highFD[,7:8]), '*', 1.05))
+
+### Arrows to SSD
+grad2plot2.siggrad3.highFD <- grad2plot2.highFD[which(rownames(grad2plot2.highFD) %in% group_diff_grad3.highFD$ROI),]
+
+G3.arrows.roi.highFD <- annotate("segment", 
+                                 x = grad2plot2.siggrad3.highFD$grad2.control, 
+                                 y = grad2plot2.siggrad3.highFD$grad3.control, 
+                                 xend = grad2plot2.siggrad3.highFD$grad2.case, 
+                                 yend = grad2plot2.siggrad3.highFD$grad3.case, 
+                                 color = roi.col$oc[rownames(grad2plot2.siggrad3.highFD),], 
+                                 alpha = 0.5, 
+                                 arrow = arrow(length = unit(0.2, "cm"), 
+                                               type = "closed", angle = 20), 
+                                 linewidth = 0.8)
+
+### Assemble
+fig.s7d <- G3.roi.control.highFD$zeMap_background + G2G3.mean.control.highFD$zeMap_text + G3.arrows.roi.highFD + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 3 of top-half movers:\nfrom Controls to SSDs")
+```
+
+### Low FD - Group difference
+
+#### for brain
+
+```{r}
+grad.reg.long.lowFD <- data.frame(t(grad.reg2plot.lowFD), grad.dx[,1:3])
+grad.reg.wide.lowFD <- grad.reg.long.lowFD %>% pivot_longer(cols = "SPN01_CMH_0003":"SPN01_ZHP_0171",
+                                                            names_to = "Subject",
+                                                            names_prefix = "",
+                                                            values_to = "value") 
+grad.reg.wide4plot.lowFD <- grad.reg.wide.lowFD %>% pivot_wider(names_from = "gradient",
+                                                                names_prefix = "",
+                                                                values_from = "value",) %>% data.frame
+grad.reg.wide4plot.lowFD$Subject <- sub("sub.", "sub-", grad.reg.wide4plot.lowFD$Subject)
+names(grad.reg.wide4plot.lowFD)[2] <- "Network"
+
+## compute the difference with GLM ----
+grad.reg.wide.diff.lowFD <- grad.reg.wide.lowFD
+grad.reg.wide.diff.lowFD$diagnostic_group <- sub.dx[grad.reg.wide.lowFD$Subject,"diagnostic_group"]
+
+all_roi_results.lowFD <- grad.reg.wide.diff.lowFD %>%
+  select(-Subject) %>%
+  ungroup() %>%
+  group_by(network, gradient, ROI) %>%
+  do(tidy(lm(value ~ diagnostic_group, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+## results from t-test filtered by p_FDR ----
+all_roi_test.lowFD <- all_roi_results.lowFD %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+## results from t-test filtered by p_FDR (subcortical) ----
+grad.reg.wide.sub.lowFD <- grad.reg.wide.diff.lowFD %>%
+  select(-Subject) %>%
+  filter(network == "Subcortical") %>%
+  ### Mapping atlases ----
+mutate(Aseg = rep(rep(c(rep("Right-Hippocampus", 2), # right hippocampus
+                        rep("Right-Amygdala", 2), # right amygdala
+                        rep("Right-Thalamus-Proper", 4), # right thalamas
+                        rep("Right-Nucleus-Accumbuns", 2), # right NAcc
+                        rep("Right-Pallidum", 2), # right GP
+                        rep("Right-Putamen", 2), # right putaman
+                        rep("Right-Caudate", 2), # right caudate
+                        rep("Left-Hippocampus", 2), # left hippocampus
+                        rep("Left-Amygdala", 2), # left amygdata
+                        rep("Left-Thalamus-Proper", 4), # left thalamas
+                        rep("Left-Nucleus-Accumbuns", 2), # left Nacc
+                        rep("Left-Pallidum", 2), # left GP
+                        rep("Left-Putamen", 2), # left putaman
+                        rep("Left-Caudate", 2)), # left caudate
+                      each = 3), each = 209)) %>%
+  ungroup() %>%
+  group_by(network, gradient, Aseg) %>%
+  do(tidy(lm(value ~ diagnostic_group, data = .))) %>%
+  ungroup() %>%
+  group_by(term) %>%
+  mutate(p_FDR = p.adjust(p.value, method = "fdr"))
+
+all_subroi_results.lowFD <- grad.reg.wide.sub.lowFD %>% 
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(!(Aseg %in% c("Left-Nucleus-Accumbuns", "Right-Nucleus-Accumbuns"))) %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+### plot T in subcortical ----
+for (grad in c(1:3)){
+  gradient_raw_data_sub.lowFD.G <- all_subroi_results.lowFD %>%
+    as.data.frame() %>%
+    select(gradient, network, statistic.cor, label = Aseg) %>%
+    group_by(label, gradient) %>%
+    filter(gradient == paste0("grad",grad))
+  
+  gradient_raw_aseg_sub.lowFD.G <- aseg %>%
+    as.tibble %>% left_join(gradient_raw_data_sub.lowFD.G)
+  gradient_raw_aseg_sub.lowFD.G$gradient <- paste0("grad",grad)
+  
+  if (grad == 1){
+    gradient_raw_aseg_sub.lowFD <- gradient_raw_aseg_sub.lowFD.G
+  }else{
+    gradient_raw_aseg_sub.lowFD <- rbind(gradient_raw_aseg_sub.lowFD, gradient_raw_aseg_sub.lowFD.G)
+  }
+}
+
+gradAseg.test.lowFD <- gradient_raw_aseg_sub.lowFD %>% as_brain_atlas()
+```
+
+#### for scatter plot
+
+```{r}
+## organize data - ROI & group average ----
+spins_grad_everything.lowFD <- merge(grad.reg.wide4plot.lowFD, sub.dx, by.x = "Subject", by.y = 0)
+
+spins_mean_bygrp.lowFD<- spins_grad_everything.lowFD %>% 
+  group_by(ROI, Network,diagnostic_group) %>% 
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame %>%
+  reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+
+spins_sd_bygrp.lowFD<- spins_grad_everything.lowFD %>% 
+  group_by(ROI, Network,diagnostic_group) %>% 
+  dplyr::summarize(across(starts_with("grad"), ~ sd(.x, na.rm = TRUE))) %>%
+  as.data.frame %>%
+  reshape(idvar = c("ROI", "Network"), timevar = "diagnostic_group", direction = "wide")
+
+grad2plot2.lowFD <- spins_mean_bygrp.lowFD[,c(3:8)]
+grad4grp2.lowFD <- unique(spins_mean_bygrp.lowFD[,c(1:2)]) %>% as.data.frame
+rownames(grad4grp2.lowFD) <- grad4grp2.lowFD$ROI
+rownames(grad2plot2.lowFD) <- grad4grp2.lowFD$ROI
+
+## organize data - network mean by groups ----
+net_mean_bygrp.lowFD <- spins_mean_bygrp.lowFD %>%
+  group_by(Network) %>%
+  dplyr::summarize(across(starts_with("grad"), ~ mean(.x, na.rm = TRUE))) %>%
+  as.data.frame
+rownames(net_mean_bygrp.lowFD) <- net_mean_bygrp.lowFD$Network
+
+## organize data - ROI average ----
+spins_mean.lowFD <- getMeans(grad.reg.wide4plot.lowFD[,4:6], grad.reg.wide4plot.lowFD$ROI)
+grad4grp.lowFD <- unique(grad.reg.wide4plot.lowFD[,c(1,2)]) %>% data.frame
+rownames(grad4grp.lowFD) <- grad4grp.lowFD$ROI
+
+
+## get colors ----
+roi.col <- list()
+roi.col$oc <- recode(grad4grp.lowFD$Network, !!!net.col.idx) %>% as.matrix
+rownames(roi.col$oc) <- grad4grp.lowFD$ROI
+roi.col$gc <- as.matrix(net.col.idx)
+```
+
+#### Figures
+
+##### Compute group differences
+```{r}
+group_diff_grad.lowFD <- all_roi_test.lowFD %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+group_diff_grad1.lowFD <- group_diff_grad.lowFD %>% filter(statistic.cor != 0, gradient == "grad1")
+group_diff_grad2.lowFD <- group_diff_grad.lowFD %>% filter(statistic.cor != 0, gradient == "grad2")
+group_diff_grad3.lowFD <- group_diff_grad.lowFD %>% filter(statistic.cor != 0, gradient == "grad3") 
+```
+
+
+##### Brain: Group difference
+```{r}
+## plot the t statistics (filtered by FDR test)
+gradient_test_brain.lowFD <- group_diff_grad.lowFD %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = statistic.cor),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "F value", palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1), guide = "none") +
+  ggtitle("Gradients: Controls > SSDs in bottom-half movers\n(significant results; FDR-corrected)")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        strip.text = element_text(hjust = 0.70),
+        plot.margin=unit(c(1,-0.5,1,-0.1), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+
+## plot the t statistics (filtered by FDR test) subcortical
+asegbrain.test.lowFD <- ggplot() +
+  geom_brain(atlas = gradAseg.test.lowFD,
+             colour = "grey30",
+             mapping = aes(fill = statistic.cor),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = expression(~~italic(t)), palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1)) +
+  ggtitle("\n") +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1,1,1,-0.5), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+fig.s7e <- grid.arrange(grobs = list(gradient_test_brain.lowFD, asegbrain.test.lowFD), 
+                        ncol = 2,
+                        widths = c(0.72, 0.28))
+
+```
+
+##### Scatter plot: Group differences
+
+```{r}
+## Gradients 1 & 2
+### network labels at the mean
+G1G2.mean.control.lowFD <- createFactorMap(net_mean_bygrp.lowFD[,5:7],
+                                           axis1 = 1, axis2 = 2,
+                                           col.points = roi.col$gc[net_mean_bygrp.lowFD$Network,],
+                                           col.labels = roi.col$gc[net_mean_bygrp.lowFD$Network,],
+                                           cex = 2,
+                                           text.cex = 3,
+                                           alpha.labels = 0.7,
+                                           alpha.points = 0.7,
+                                           col.background = "grey96",
+                                           col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad1.lowFD <- spins_mean_bygrp.lowFD[which(spins_mean_bygrp.lowFD$ROI %in% group_diff_grad1.lowFD$ROI),]
+
+G1G2.roi.control.lowFD <- createFactorMap(spins_mean_siggrad1.lowFD[,6:8],#spins_mean_bygrp[,6:8],
+                                          axis1 = 1, axis2 = 2,
+                                          col.points = roi.col$oc[spins_mean_siggrad1.lowFD$ROI,],
+                                          alpha.points = 0.1, 
+                                          col.background = "grey96",
+                                          col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad1.lowFD <- grad2plot2.lowFD[which(rownames(grad2plot2.lowFD) %in% group_diff_grad1.lowFD$ROI),]
+
+G1G2.arrows.roi.lowFD <- annotate("segment", 
+                                  x = grad2plot2.siggrad1.lowFD$grad1.control, 
+                                  y = grad2plot2.siggrad1.lowFD$grad2.control, 
+                                  xend = grad2plot2.siggrad1.lowFD$grad1.case, 
+                                  yend = grad2plot2.siggrad1.lowFD$grad2.case, 
+                                  color = roi.col$oc[rownames(grad2plot2.siggrad1.lowFD),], 
+                                  alpha = 0.5, 
+                                  arrow = arrow(length = unit(0.2, "cm"), 
+                                                type = "closed", angle = 20), 
+                                  linewidth = 0.8)
+
+### Assemble
+fig.s7f <- G1G2.roi.control.lowFD$zeMap_background + G1G2.mean.control.lowFD$zeMap_text + G1G2.arrows.roi.lowFD + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradient 1 of bottom-half movers:\nFrom Controls to SSDs")
+
+## Gradients 2
+### network labels
+G2G3.mean.control.lowFD <- createFactorMap(net_mean_bygrp.lowFD[,5:7],
+                                           axis1 = 2, axis2 = 3,
+                                           col.points = roi.col$gc[net_mean_bygrp.lowFD$Network,],
+                                           col.labels = roi.col$gc[net_mean_bygrp.lowFD$Network,],
+                                           cex = 2,
+                                           text.cex = 3,
+                                           alpha.labels = 0.7,
+                                           alpha.points = 0.7,
+                                           col.background = "grey96",
+                                           col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad2.lowFD <- spins_mean_bygrp.lowFD[which(spins_mean_bygrp.lowFD$ROI %in% group_diff_grad2.lowFD$ROI),]
+
+G2.roi.control.lowFD <- createFactorMap(spins_mean_siggrad2.lowFD[,6:8],
+                                        axis1 = 2, axis2 = 3,
+                                        col.points = roi.col$oc[spins_mean_siggrad2.lowFD$ROI,],
+                                        alpha.points = 0.1, 
+                                        col.background = "grey96",
+                                        col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad2.lowFD <- grad2plot2.lowFD[which(rownames(grad2plot2.lowFD) %in% group_diff_grad2.lowFD$ROI),]
+
+G2.arrows.roi.lowFD <- annotate("segment", 
+                                x = grad2plot2.siggrad2.lowFD$grad2.control, 
+                                y = grad2plot2.siggrad2.lowFD$grad3.control, 
+                                xend = grad2plot2.siggrad2.lowFD$grad2.case, 
+                                yend = grad2plot2.siggrad2.lowFD$grad3.case, 
+                                color = roi.col$oc[rownames(grad2plot2.siggrad2.lowFD),], 
+                                alpha = 0.5, 
+                                arrow = arrow(length = unit(0.2, "cm"), 
+                                              type = "closed", angle = 20), 
+                                linewidth = 0.8)
+
+### Assemble
+fig.s7g <- G2.roi.control.lowFD$zeMap_background + G2G3.mean.control.lowFD$zeMap_text + G2.arrows.roi.lowFD + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 2 of bottom-half movers: From Controls to SSDs")
+
+## Gradients 3
+### Points from controls
+spins_mean_siggrad3.lowFD <- spins_mean_bygrp.lowFD[which(spins_mean_bygrp.lowFD$ROI %in% group_diff_grad3.lowFD$ROI),]
+
+G3.roi.control.lowFD <- createFactorMap(spins_mean_siggrad3.lowFD[,6:8],
+                                        axis1 = 2, axis2 = 3,
+                                        col.points = roi.col$oc[spins_mean_siggrad3.lowFD$ROI,],
+                                        alpha.points = 0.1, 
+                                        cex = 2,
+                                        text.cex = 3,
+                                        alpha.labels = 0.7,
+                                        col.background = "grey96",
+                                        col.axes = "grey30",
+                                        constraints = lapply(minmaxHelper(spins_mean_siggrad3.lowFD[,7:8]), '*', 1.05))
+
+### Arrows to SSD
+grad2plot2.siggrad3.lowFD <- grad2plot2.lowFD[which(rownames(grad2plot2.lowFD) %in% group_diff_grad3.lowFD$ROI),]
+
+G3.arrows.roi.lowFD <- annotate("segment", 
+                                x = grad2plot2.siggrad3.lowFD$grad2.control, 
+                                y = grad2plot2.siggrad3.lowFD$grad3.control, 
+                                xend = grad2plot2.siggrad3.lowFD$grad2.case, 
+                                yend = grad2plot2.siggrad3.lowFD$grad3.case, 
+                                color = roi.col$oc[rownames(grad2plot2.siggrad3.lowFD),], 
+                                alpha = 0.5, 
+                                arrow = arrow(length = unit(0.2, "cm"), 
+                                              type = "closed", angle = 20), 
+                                linewidth = 0.8)
+
+### Assemble
+fig.s7h <- G3.roi.control.lowFD$zeMap_background + G2G3.mean.control.lowFD$zeMap_text + G3.arrows.roi.lowFD + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 3 of bottom-half movers:\nfrom Controls to SSDs")
+```
+
+#### Combine
+```{r}
+png(filename = "results/FigS7fromR.png", width = 30, height = 50, units = 'cm', res = 600)
+grid.arrange(grobs = list(fig.s7a, fig.s7b, fig.s7c, fig.s7d, fig.s7e, fig.s7f, fig.s7g, fig.s7h),
+             widths = c(0.49, 0.1, 0.49),
+             heights = c(0.25, 0.25, 0.25, 0.25),
+             layout_matrix = rbind(c(1,NA,5),
+                                   c(2,NA,6),
+                                   c(3,NA,7),
+                                   c(4,NA,8)))
+dev.off()
+```
+
+### CPZ relationship to gradients
+
+```{r}
+cpz <- read.csv("../data/final_cpzeqv.csv")
+rownames(cpz) <- cpz$record_id
+
+cpz.kept <- cpz$record_id[cpz$record_id %in% kept.sub] # 222 SSD
+
+grad.cpzkept <- grad.reg[cpz.kept,]
+cpz.cpzkept <- cpz[cpz.kept,]
+
+## compute correlations
+grad.cpz.cor <- apply(grad.cpzkept, 2, 
+                      function(x){
+                        tmp.res = cor.test(cpz.cpzkept$cpz_eq_total, x)
+                        return(c(tmp.res$estimate,tmp.res$p.value))
+                      })
+rownames(grad.cpz.cor) <- c("cor", "p.value")
+
+## FDR correction
+p.adj <- p.adjust(grad.cpz.cor[2,], method = "fdr")
+
+# range of correlations
+range(grad.cpz.cor[1,]) #[-0.25, 0.20]
+range(p.adj) #[0.24, 0.99]
+```
+
+### Check the percentage of diagnoses
+```{r}
+fullSPINS <- read.csv("../data/SPINS_2022-03-10_1421.csv")
+rownames(fullSPINS) <- fullSPINS[,1]
+
+# change IDs for participants with repeated scans (using prisma scans in these cases with behavioural from 1st visit)
+fullSPINS[fullSPINS[,1]=="SPN01_ZHH_0060",1] <- "SPN01_ZHP_0060"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0180",1] <- "SPN01_CMP_0180"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0182",1] <- "SPN01_CMP_0182"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0191",1] <- "SPN01_CMP_0191"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0196",1] <- "SPN01_CMP_0196"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0198",1] <- "SPN01_CMP_0198"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0207",1] <- "SPN01_CMP_0207"
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0211",1] <- "SPN01_CMP_0211" 
+fullSPINS[fullSPINS[,1]=="SPN01_CMH_0213",1] <- "SPN01_CMP_0213"
+rownames(fullSPINS) <- fullSPINS[,1]
+
+
+
+kept.ssd <- sub.dx %>% filter(diagnostic_group == "case") %>% rownames()
+
+full.ssd <- fullSPINS[kept.ssd,] %>%
+  select(scid5_dis1_cat_scz_psyc,
+         scid5_dis2_cat_scz_psyc,
+         scid5_dis1_cat_mood,
+         scid5_dis1_type_major_depress) %>%
+  mutate(cat_scz_psyc = ifelse(is.na(scid5_dis1_cat_scz_psyc), scid5_dis2_cat_scz_psyc, scid5_dis1_cat_scz_psyc)) %>%
+  mutate(cat_scz_psyc = ifelse(is.na(cat_scz_psyc), 100+scid5_dis1_type_major_depress, cat_scz_psyc))
+
+full.ssd_type <- full.ssd$cat_scz_psyc %>%
+  recode('1' = "Schizophrenia",
+         '2' = "Schizophreniform Disorder",
+         '3' = "Schizoaffective Disorder",
+         '4' = "Delusional Disorder",
+         '5' = "Brief Psychotic Disorder",
+         '6' = "Psychotic Disorder due to GMC",
+         '7' = "Substance-induced Psychotic Disorder",
+         '8' = "Psychotic Disorder NOS",
+         '112' = "Major Depression Disorder severe with psychotic features")
+
+
+table(full.ssd_type)
+table(full.ssd_type)/sum(table(full.ssd_type))
+# Psychotic Disorder NOS 13 
+# Schizoaffective Disorder 48 
+# Schizophrenia 180 
+# Schizophreniform Disorder 6
+```
+
+### Check medication
+
+```{r}
+# data pulled from REDCap: 07-16-2024 ----
+
+spins_meds <- read.csv("../data/SPN01SocialProcesses-Medications_DATA_2024-07-15_1425.csv", 
+                       na = c("", "NA", "NI", "INV", "NASK", "ASKU")) %>%
+  mutate(study = "SPINS",
+         group = case_when(grepl("arm_2", redcap_event_name) ~ "Case",
+                           grepl("arm_1", redcap_event_name) ~ "Control"
+         ) %>%
+           factor(.)) %>%
+  dplyr::select(-c(redcap_event_name)) %>%
+  select(record_id, study, group,everything()) %>%
+  filter(record_id %in% kept.ssd) %>%
+  ungroup() 
+
+# psychiatric medications----
+
+spins_pmeds <- spins_meds %>%
+  mutate(group = ifelse(group == "Case", "SSD", "Control")) %>%
+  select(record_id, study, group, !contains("npmed")) %>%
+  select(record_id, study, group, contains(c("name","strength","units","freq"))
+  ) %>%
+  select(record_id, study, group, 
+         contains(c("drug1_","drug2","drug3","drug4","drug5",
+                    "drug6","drug7","drug8","drug9","drug10")))
+
+## combined pmeds N=585 ----
+spins_pmeds_df <- spins_pmeds %>%
+  mutate(across(4:63, tolower)) %>%
+  mutate(across(contains("units"), ~ dplyr::recode(.,
+                                                   `1`='CAP', 
+                                                   `2`='GTT', #drop
+                                                   `3`='PUF', #puff
+                                                   `4`='SPY', #spray/squirt
+                                                   `5`='SUP', #suppository
+                                                   `6`='TAB', #tablet
+                                                   `7`='mg',  
+                                                   `8`='ug',  
+                                                   `9`='g',   
+                                                   `10`='oz', 
+                                                   `11`='mL', 
+                                                   `12`='uL', 
+                                                   `13`='mCi', 
+                                                   `14`='uCi',
+                                                   `15`='gr',  
+                                                   `16`='tsp', 
+                                                   `17`='tbs', 
+                                                   `18`='U',   
+                                                   `88`='OTHER',
+                                                   `101`='UNKNOWN')))
+
+# Psychotropic Meds  
+
+med_names <- spins_pmeds_df %>%
+  select(record_id, study, group, contains("name")) %>%
+  pivot_longer(cols = contains("name"),
+               names_to = "drug_name",
+               values_to = "drug") %>%
+  group_by(record_id) %>%
+  mutate(keep_na = ifelse(is.na(drug), row_number() == 1, TRUE)) %>%
+  ungroup() %>%
+  filter(keep_na) %>%
+  select(-keep_na) %>%
+  mutate(drug = ifelse(is.na(drug), ".non-medicated", drug)) %>%
+  mutate(drug = dplyr::recode(drug,
+                              "buproprion" = "bupropion",
+                              "tranzadone" = "trazodone"
+  ))
+
+
+# read from dictionary
+AP_dictionary <- read.csv("../data/SPINS_APs_Dictionary.csv") # List of Antipsychotic Medications from SPINS Study from Lindsay
+
+AP_med_names <- med_names %>%
+  mutate(Med_type = ifelse(drug %in% AP_dictionary$unique.antipsychotics,'Antipsychotic','Non-Antipsychotic')) %>%
+  distinct(drug, Med_type) %>%
+  arrange(drug) %>% as.data.frame
+# kable() %>% kable_styling()
+
+
+# Psychotropic Meds Table
+
+total_n <- table(spins_pmeds_df$group)
+
+count_tab <- table(med_names$drug) %>% as.matrix
+percentage_tab <- count_tab/total_n[1] %>% as.matrix
+
+all_tab <- cbind(count_tab, percentage_tab) %>% data.frame
+colnames(all_tab) <- c("SSD.n", "SSD.pr")
+
+
+complete_tab <- data.frame(drug = rownames(all_tab), SSD = paste0(all_tab$SSD.n," (", round(100*all_tab$SSD.pr,2), "%)"))
+
+rownames(complete_tab) <- rownames(all_tab)
+
+meds_table <- complete_tab %>% left_join(AP_med_names) %>% arrange(Med_type)
+
+
+```
+
+### Check courses of illness
+
+```{r}
+library(stringr)
+course.ssd <- fullSPINS[kept.ssd,] %>%
+  select(demo_age_study_entry,
+         scid5_dis1_cat_scz_psyc,
+         scid5_dis2_cat_scz_psyc,
+         scid5_dis1_age_onset,
+         scid5_dis2_age_onset,
+         scid5_dis1_num_hosp,
+         scid5_dis2_num_hosp) %>%
+  mutate(cat_scz_psyc = ifelse(is.na(scid5_dis1_cat_scz_psyc), scid5_dis2_cat_scz_psyc, scid5_dis1_cat_scz_psyc),
+         num_hosp = ifelse(is.na(scid5_dis1_cat_scz_psyc), scid5_dis2_num_hosp, scid5_dis1_num_hosp),
+         age_onset = ifelse(is.na(scid5_dis1_cat_scz_psyc), scid5_dis2_age_onset, scid5_dis1_age_onset)) %>%
+  mutate(num_hosp = ifelse(num_hosp == 101, NA, num_hosp),
+         age_onset = ifelse(age_onset == 101, NA, age_onset)) %>%
+  mutate(ill_durn = demo_age_study_entry - age_onset,
+         num_hosp.new = ifelse(num_hosp == 102, max(num_hosp[num_hosp < 100], na.rm = TRUE), num_hosp)) %>% 
+  select(ill_durn, num_hosp, age_onset, num_hosp.new)
+
+course.ssd.stats <- course.ssd %>%
+  select(ill_durn, num_hosp.new, age_onset) %>%
+  summarize(across(everything(), 
+                   list(count = ~n(),
+                        mean = ~mean(.x, na.rm = TRUE),
+                        sd = ~sd(.x, na.rm = TRUE),
+                        max = ~max(.x, na.rm = TRUE),
+                        min = ~min(.x, na.rm = TRUE)))) %>% t
+
+is.na(course.ssd$ill_durn) %>% sum
+is.na(course.ssd$num_hosp) %>% sum
+is.na(course.ssd$age_onset) %>% sum
+sum(course.ssd$num_hosp == 102, na.rm = TRUE)
+course.ssd.stats
+
+```
+
+### wakefulness
+
+```{r}
+sleep.spins <- fullSPINS[kept.sub,] %>%
+  select(record_np_id, redcap_event_name, mri_rsfmri_slp_app, mri_rsfmri_slp_rep) %>%
+  mutate(group = sub("_.*", "", redcap_event_name))
+
+table(sleep.spins$group)
+table(sleep.spins$group, sleep.spins$mri_rsfmri_slp_app)
+table(sleep.spins$group, sleep.spins$mri_rsfmri_slp_rep)
+table(sleep.spins$mri_rsfmri_slp_app, sleep.spins$mri_rsfmri_slp_rep)
+table(sleep.spins$mri_rsfmri_slp_app, sleep.spins$mri_rsfmri_slp_rep,
+      sleep.spins$group)
+
+sleep.IC <- sleep.spins[sleep.spins$mri_rsfmri_slp_app != sleep.spins$mri_rsfmri_slp_rep,] 
+table(sleep.IC $mri_rsfmri_slp_app, sleep.IC $mri_rsfmri_slp_rep,
+      sleep.IC $group)
+```
+

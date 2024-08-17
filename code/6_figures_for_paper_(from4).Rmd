@@ -1,0 +1,974 @@
+---
+title: "6_figures_for_paper_(from4)"
+author: "Ju-Chi.Yu"
+date: "2023-03-20"
+output: html_document
+---
+
+```{r, echo = FALSE}
+library(paletteer)
+library(tidyverse)
+library(ggseg)
+library(ggsegGlasser)
+library(gridExtra)
+library(broom)
+library(TExPosition)
+library(PTCA4CATA)
+library(plotly)
+library(colorspace)
+library(tableone)
+library(MKinfer)
+library("RColorBrewer")
+load("../data/res4plots.rda")
+```
+
+# Demographics
+
+```{r}
+## Statistic testing
+demo_summary <- spins_demo %>% 
+  select(-demo_sex, demo_age_study_entry) %>%
+  gather(key = variable, value = value, -diagnostic_group) %>% 
+  group_by(diagnostic_group, variable) %>% 
+  summarise(value = list(value)) %>% 
+  spread(diagnostic_group, value) %>% 
+  group_by(variable) %>% 
+  mutate(
+    mean_ssd = mean(unlist(case), na.rm = TRUE),
+    mean_control = mean(unlist(control), na.rm = TRUE),
+    sd_ssd = sd(unlist(case), na.rm = TRUE),
+    sd_control = sd(unlist(control), na.rm = TRUE),
+    var_equal_p = var.test(unlist(case), unlist(control))$p.value,
+    norm_ssd = shapiro.test(unlist(case))$p.value,
+    norm_control = shapiro.test(unlist(control))$p.value) %>%
+  mutate(method = if_else(norm_ssd > .05 | norm_control > .05,
+                          "boot", if_else(var_equal_p > .05, "welch", "student"))) %>%
+  mutate(
+    t_value = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$statistic,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$statistic),
+    df = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$parameter,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$parameter),
+    p_value = case_when(
+      method == "boot" ~ boot.t.test(unlist(case), unlist(control))$boot.p.value,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$p.value,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$p.value))
+
+demo_summary$p_FDR <- p.adjust(demo_summary$p_value, method = "fdr") 
+
+demo_summary
+
+lol_original$scanner %>% table
+```
+
+# Figure 1
+
+## Glasser atlas
+
+```{r}
+## Glasser atlas
+glasser_brain <- pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  filter(gradient == "grad1") %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = network),
+             atlas = glasser, 
+             color = "grey50", 
+             # position = position_brain(side~hemi),
+             lwd = 0.1)+
+  scale_fill_manual(name = "Networks", values = net.col.idx.light) +
+  ggtitle("Cole-Anticevic atlas (Glasser)")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "bottom",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.key.height = unit(0.2, "cm"), legend.key.width = unit(0.4, "cm") ) + 
+  theme_brain(text.family = "Calibri") +
+  guides(fill = guide_legend(ncol = 4))
+
+# asegbrain <- ggseg(atlas="aseg", 
+#         mapping=aes(fill= label), 
+#         colour="grey50", 
+#         size=.5,
+#         hemisphere = c("left", "right")) + 
+#   scale_fill_manual(name = "Regions", values = rep("black", 16)) +
+#    # ggtitle("Subcortex") + 
+#   theme(axis.text.y.left = element_blank(), 
+#         axis.text.x.bottom = element_blank(),
+#         axis.title = element_blank(),
+#         legend.position = "",
+#         legend.spacing = unit(0.2, "cm"), 
+#         legend.key.height = unit(0.2, "cm"), legend.key.width = unit(0.4, "cm") ) + 
+#   theme_brain(text.family = "Calibri") +
+#    guides(name = "Regions", fill = guide_legend(nrow = 8))
+
+glasser_brain
+
+
+```
+
+## Gradients
+
+```{r}
+## brain palette
+# GdPu <- paletteer_c("ggthemes::Gold-Purple Diverging", 200)
+GdPu <- colorRampPalette(c("orchid4", "white", "#EABD4C"))(256)
+## Cortical ----
+gradient_raw_brain <- pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = raw),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_gradientn(name = "Scores", colours = rev(GdPu), limits = c(-1,1.5), values = c(0, 0.266, 0.4, 0.6, 1), guide = "none") +
+  ggtitle("Network hierarchy")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        strip.text = element_text(hjust = 0.70),
+        plot.margin=unit(c(1,-0.5,1,-0.1), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+asegbrain <- ggplot() +
+  geom_brain(atlas = gradAseg,
+             colour = "grey30",
+             mapping = aes(fill = raw),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_gradientn(name = "Scores", colours = rev(GdPu), limits = c(-1,1.5), values = c(0, 0.266, 0.4, 0.6, 1)) +
+  ggtitle("") +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1,1,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+grid.arrange(grobs = list(gradient_raw_brain, asegbrain), 
+             ncol = 2,
+             widths = c(0.72, 0.28))
+
+```
+
+## Gradients in 3D
+```{r}
+### Gradients 1 & 2
+G1G2 <- createFactorMap(grad2plot,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        alpha.points = 0.1, 
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G1G2.mean <- createFactorMap(net_mean,
+                             axis1 = 1, axis2 = 2,
+                             col.points = roi.col$gc[rownames(net_mean),],
+                             col.labels = roi.col$gc[rownames(net_mean),],
+                             cex = 4,
+                             text.cex = 3,
+                             alpha.points = 0.7,
+                             col.background = "grey96",
+                             col.axes = "grey30")
+
+G1G2$zeMap_background + G1G2$zeMap_dots + G1G2.mean$zeMap_dots + G1G2.mean$zeMap_text + xlab( "Gradient 1") + ylab("Gradient 2")
+
+### Gradients 2 & 3
+G2G3 <- createFactorMap(grad2plot,
+                        axis1 = 2, axis2 = 3,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        alpha.points = 0.1,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G2G3.mean <- createFactorMap(net_mean,
+                             axis1 = 2, axis2 = 3,
+                             col.points = roi.col$gc[rownames(net_mean),],
+                             col.labels = roi.col$gc[rownames(net_mean),],
+                             cex = 4,
+                             text.cex = 3,
+                             alpha.points = 0.7,
+                             col.background = "grey96",
+                             col.axes = "grey30"
+)
+
+G2G3$zeMap_background + G2G3$zeMap_dots + G2G3.mean$zeMap_dots + G2G3.mean$zeMap_text + xlab( "Gradient 2") + ylab("Gradient 3")
+```
+
+## Assemble Figure 1
+
+```{r}
+
+```
+
+# Figure 2
+
+## Group differences
+```{r}
+group_diff_grad <- all_roi_test %>%
+  filter(term == "diagnostic_groupcontrol") %>%
+  mutate(roi = str_remove(ROI, "_ROI"),
+         label = case_when(str_starts(ROI, "L") ~ str_c("lh_", roi),
+                           str_starts(ROI, "R_") ~ str_c("rh_", roi)),
+         statistic.cor = ifelse(p_FDR < 0.05, statistic, 0)) %>%
+  filter(ROI != "L_10pp_ROI") %>%
+  as.data.frame() %>%
+  group_by(gradient)
+
+group_diff_grad1 <- group_diff_grad %>% filter(statistic.cor != 0, gradient == "grad1")
+group_diff_grad2 <- group_diff_grad %>% filter(statistic.cor != 0, gradient == "grad2")
+group_diff_grad3 <- group_diff_grad %>% filter(statistic.cor != 0, gradient == "grad3") 
+```
+
+
+## Group difference in brain
+```{r}
+## plot the t statistics (filtered by FDR test)
+gradient_test_brain <- group_diff_grad %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = statistic.cor),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "F value", palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1), guide = "none") +
+  ggtitle("Gradients: Controls > SSDs\n(significant results; FDR-corrected)")+
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        strip.text = element_text(hjust = 0.70),
+        plot.margin=unit(c(1,-0.5,1,-0.1), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+
+## plot the t statistics (filtered by FDR test) subcortical
+asegbrain.test <- ggplot() +
+  geom_brain(atlas = gradAseg.test,
+             colour = "grey30",
+             mapping = aes(fill = statistic.cor),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = expression(~~italic(t)), palette = "RdBu", limits = c(-7,7), values = c(0, 0.25, 0.5, 0.75, 1)) +
+  ggtitle("\n") +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1,1,1,-0.5), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+grid.arrange(grobs = list(gradient_test_brain, asegbrain.test), 
+             ncol = 2,
+             widths = c(0.72, 0.28))
+
+```
+
+## Group differences in 3D
+```{r}
+## Gradients 1 & 2
+### network labels at the mean
+G1G2.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 1, axis2 = 2,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.labels = 0.7,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad1 <- spins_mean_bygrp[which(spins_mean_bygrp$ROI %in% group_diff_grad1$ROI),]
+
+G1G2.roi.control <- createFactorMap(spins_mean_siggrad1[,6:8],#spins_mean_bygrp[,6:8],
+                                    axis1 = 1, axis2 = 2,
+                                    col.points = roi.col$oc[spins_mean_siggrad1$ROI,],
+                                    alpha.points = 0.1, 
+                                    col.background = "grey96",
+                                    col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad1 <- grad2plot2[which(rownames(grad2plot2) %in% group_diff_grad1$ROI),]
+
+G1G2.arrows.roi <- annotate("segment", 
+                            x = grad2plot2.siggrad1$grad1.control, 
+                            y = grad2plot2.siggrad1$grad2.control, 
+                            xend = grad2plot2.siggrad1$grad1.case, 
+                            yend = grad2plot2.siggrad1$grad2.case, 
+                            color = roi.col$oc[rownames(grad2plot2.siggrad1),], 
+                            alpha = 0.5, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+### Assemble
+G1G2.roi.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradient 1: From Controls to SSDs")
+
+## Gradients 2
+### network labels
+G2G3.mean.control <- createFactorMap(net_mean_bygrp[,5:7],
+                                     axis1 = 2, axis2 = 3,
+                                     col.points = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     cex = 2,
+                                     text.cex = 3,
+                                     alpha.labels = 0.7,
+                                     alpha.points = 0.7,
+                                     col.background = "grey96",
+                                     col.axes = "grey30")
+
+### Points from controls
+spins_mean_siggrad2 <- spins_mean_bygrp[which(spins_mean_bygrp$ROI %in% group_diff_grad2$ROI),]
+
+G2.roi.control <- createFactorMap(spins_mean_siggrad2[,6:8],
+                                    axis1 = 2, axis2 = 3,
+                                    col.points = roi.col$oc[spins_mean_siggrad2$ROI,],
+                                    alpha.points = 0.1, 
+                                    col.background = "grey96",
+                                    col.axes = "grey30")
+
+### Arrows to SSD
+grad2plot2.siggrad2 <- grad2plot2[which(rownames(grad2plot2) %in% group_diff_grad2$ROI),]
+
+G2.arrows.roi <- annotate("segment", 
+                            x = grad2plot2.siggrad2$grad2.control, 
+                            y = grad2plot2.siggrad2$grad3.control, 
+                            xend = grad2plot2.siggrad2$grad2.case, 
+                            yend = grad2plot2.siggrad2$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2.siggrad2),], 
+                            alpha = 0.5, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+### Assemble
+G2.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G2.arrows.roi + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 2: From Controls to SSDs")
+
+## Gradients 3
+### Points from controls
+spins_mean_siggrad3 <- spins_mean_bygrp[which(spins_mean_bygrp$ROI %in% group_diff_grad3$ROI),]
+
+G3.roi.control <- createFactorMap(spins_mean_siggrad3[,6:8],
+                                    axis1 = 2, axis2 = 3,
+                                    col.points = roi.col$oc[spins_mean_siggrad3$ROI,],
+                                    alpha.points = 0.1, 
+                                    col.background = "grey96",
+                                    col.axes = "grey30",
+                                  constraints = lapply(minmaxHelper(spins_mean_siggrad3[,7:8]), '*', 1.05))
+
+### Arrows to SSD
+grad2plot2.siggrad3 <- grad2plot2[which(rownames(grad2plot2) %in% group_diff_grad3$ROI),]
+
+G3.arrows.roi <- annotate("segment", 
+                            x = grad2plot2.siggrad3$grad2.control, 
+                            y = grad2plot2.siggrad3$grad3.control, 
+                            xend = grad2plot2.siggrad3$grad2.case, 
+                            yend = grad2plot2.siggrad3$grad3.case, 
+                            color = roi.col$oc[rownames(grad2plot2.siggrad3),], 
+                            alpha = 0.5, 
+                            arrow = arrow(length = unit(0.2, "cm"), 
+                                          type = "closed", angle = 20), 
+                            linewidth = 0.8)
+
+### Assemble
+G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G3.arrows.roi + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradient 3: from Controls to SSDs")
+```
+
+## Assemble Figure 2
+
+```{r}
+
+```
+
+# Figure 3
+
+## PLS results
+```{r}
+check.dim = 1
+## Latent variables
+lxly <- cbind(pls.res$TExPosition.Data$lx[,check.dim], pls.res$TExPosition.Data$ly[,check.dim])
+colnames(lxly) <- c(paste0("Dim", check.dim, c(".Behavioral", ".Gradient")))
+
+lxly.boot <- Boot4Mean(lxly, diagnostic.dx, niter = 1000)
+colnames(lxly.boot$GroupMeans) <- colnames(lxly.boot$BootCube) <- c(paste0("Dim", check.dim, c(".Behavioral", ".Gradient")))
+rownames(lxly.boot$GroupMeans) <- rownames(lxly.boot$BootCube) <- c("Controls", "SSDs")
+
+## plot latent variables
+lxly.all <- createFactorMap(lxly,
+                            title = sprintf("PLSC: Dimension 1 (%.02f%% of variance)\nLatent variables", pls.res$TExPosition.Data$t[1]),
+                            col.background = NULL,
+                            col.axes = "gray60",
+                            alpha.axes = 0.5,
+                            cex = 2,
+                            col.points = diagnostic.col$oc,
+                            alpha.points = 0.2)
+
+lxly.avg <- createFactorMap(lxly.boot$GroupMeans,
+                            col.points = diagnostic.col$gc[c("control", "SSD"),],
+                            col.labels =  diagnostic.col$gc[c("control", "SSD"),], 
+                            pch = 17, 
+                            alpha.points = 1, 
+                            cex = 2.5,
+                            text.cex = 5)
+
+lxly.CI <- MakeCIEllipses(lxly.boot$BootCube,
+                          col =  diagnostic.col$gc[c("control", "SSD"),],
+                          names.of.factors = c(paste0("Dim", check.dim, c(".Behavioral", ".Gradient"))), alpha.ellipse = 0.1, line.size = 0.8)
+
+fig.3a <- lxly.all$zeMap_background + lxly.all$zeMap_dots + lxly.CI + lxly.avg$zeMap_dots + lxly.avg$zeMap_text + coord_cartesian()+ xlab("Cognitive scores") + ylab("Brain scores")+
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))
+
+
+## Loadings
+loadings2plot <- pls.res$TExPosition.Data$pdq$p[,1]
+names(loadings2plot) <- c("RMET", "ER40", 
+                          "TASIT 1", 
+                          "TASIT 2 - sincere",
+                          "TASIT 2 -\nsimple sarcasm", 
+                          "TASIT 2 -\nparadoxical sarcasm",
+                          "TASIT 3 - lies",
+                          "TASIT 3 - sarcasm",
+                          "Processing speed",
+                          "Attention/Vigilance",
+                          "Working memory",
+                          "Verbal learning",
+                          "Visual learning",
+                          "Reasoning and\nproblem solving")
+
+fig.3b <- PrettyBarPlot2(loadings2plot,
+               threshold = 0, 
+               color4bar = ifelse(pls.boot$bootRatiosSignificant.i[,1] == TRUE, behav.dx$type.col, "grey80"), 
+               horizontal = TRUE, 
+               main = "Loadings - social and non-social cognition")+ 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))
+
+```
+
+## In brain
+```{r}
+pq_brain <- pq_for_plot %>%
+  as.data.frame() %>%
+  group_by(gradient) %>%
+  ggplot() +
+  geom_brain(mapping = aes(fill = fj.sig1),
+             atlas = glasser) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "Gradient 1: Somatosensory vs. Frontoparietal",
+                                                          "grad2" = "Gradient 2: Auditory/Motion vs. Vision",
+                                                          "grad3" = "Gradient 3: Default mode vs. Frontoparietal")
+  )) +
+  scale_fill_distiller(name = "fj", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1), guide = "none") +
+  ggtitle("Loadings - network hierarchy") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        strip.text = element_text(hjust = 0.70, size = 12),
+        plot.margin=unit(c(1,-0.5,1,0), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+## Subcortical ----
+pq_aseg_brain <- ggplot() +
+  geom_brain(atlas = pqAseg.test,
+             colour = "grey30",
+             mapping = aes(fill = fj.sig1),
+             size=.5,side = "coronal"
+  ) +
+  facet_wrap(~gradient, ncol = 1, labeller = labeller(gradient = 
+                                                        c("grad1" = "",
+                                                          "grad2" = "",
+                                                          "grad3" = "")
+  )) +
+  scale_fill_distiller(name = "Loadings\n", palette = "RdBu", limits = c(-1,1), values = c(0, 0.45, 0.5, 0.55, 1)) +
+  ggtitle("") + 
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        plot.margin=unit(c(1.01,0,1,-0.4), "cm")) + 
+  theme_brain(text.family = "Calibri")
+
+fig.3c <- grid.arrange(grobs = list(pq_brain, pq_aseg_brain),
+                       ncol = 3,
+                       nrow = 1,
+             widths = c(0.72, 0.03,0.27),
+             layout_matrix = rbind(c(1, NA, 2)))
+```
+
+### Gradients and brains
+```{r}
+## Gradient 1
+### Data
+G1G2.points2plot.sigG1 <- cbind(grad2plot2$grad1.control, grad2plot2$grad2.control)
+
+### Dots
+G1G2.points.pls <- createFactorMap(G1G2.points2plot.sigG1,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad1[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad1[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+### Arrows
+G1.sig.noArrows <- G1G2$zeMap_background + G1G2.mean.control$zeMap_text
+
+grad2plot2$color = ROI.idx[rownames(grad2plot2)]
+grad2plot2$alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1"]*100
+grad2plot2$direction = ifelse(spins_cj$grad1[rownames(grad2plot2), "dir.1"] > 0, "Positive", "Negative")
+
+grad2plot2.G1 <- grad2plot2[grad2plot2$alpha > 0,]
+
+G1.sig <- G1.sig.noArrows + 
+  geom_point(data = grad2plot2.G1,
+             mapping = aes(x = grad1.control, y = grad2.control,
+                           shape = direction, color = color,
+                           alpha =  spins_cj$grad1[rownames(grad2plot2.G1), "cjsig1"]*100), size = 3) +
+  geom_segment(data = grad2plot2.G1, 
+                               mapping = aes(x = grad1.control, 
+                                             y = grad2.control, 
+                                             xend = grad1.case, 
+                                             yend = grad2.case, 
+                                             color = color,
+                                             alpha = spins_cj$grad1[rownames(grad2plot2.G1), "cjsig1"]*100),
+                               arrow = arrow(length = unit(0.2, "cm"), 
+                                             type = "closed", angle = 20), 
+                               linewidth = 0.8) +
+  scale_color_manual(values = roi.col$gc[order(rownames(roi.col$gc)),], guide = "none") +
+  scale_shape_manual(values = c(16, 15), name = "Contributing\ndirection", guide = guide_legend()) +
+  scale_alpha_continuous(name = "Contributions", range = c(0.1,1), guide = guide_legend()) +
+  labs(x = "Gradient 1", y = "Gradient 2", title = "Gradient 1: from Controls to SSDs\nSignificant contributions") +
+  theme(legend.position = "right",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        plot.margin=unit(c(0,-0.2,0.2,0), "cm"))
+
+
+### Cortical brain
+brain_sig1 <- brain_sig_grad1dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey20")),
+             atlas = glasser,
+             size = .2,
+             position = position_brain(hemi~side))+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig1pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+### Subcortical brain
+subcor.col.G1.black <- ifelse(sigsubcorROI.G1 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G1.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.3,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G1.black ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+### Combined
+fig.3d <- G1.sig + annotation_custom(ggplotify::as.grob(brain_sig1),0,1.7,0.8,2) +
+  annotation_custom(ggplotify::as.grob(asegbrain_G1.black), 0.5, 1.5, -0.4, -1.2)
+
+## Gradient 2
+### Data
+G2G3.points2plot.sigG2 <- cbind(grad2plot2$grad2.control, grad2plot2$grad3.control)
+
+### Points
+G2G3.points.pls.G2 <- createFactorMap(G2G3.points2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad2[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad2[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+### Arrows
+G2.sig.noArrows <- G2G3$zeMap_background + G2G3.mean.control$zeMap_text 
+
+grad2plot2$alpha.2 = spins_cj$grad2[rownames(grad2plot2), "cjsig1"]*100
+grad2plot2$direction.2 = ifelse(spins_cj$grad2[rownames(grad2plot2), "dir.1"] > 0, "Positive", "Negative")
+
+grad2plot2.G2 <- grad2plot2[grad2plot2$alpha.2 > 0,]
+
+G2.sig <- G2.sig.noArrows + 
+  geom_point(data = grad2plot2.G2,
+             mapping = aes(x = grad2.control, y = grad3.control,
+                           shape = direction.2, color = color,
+                           alpha =  alpha.2), size = 3)+
+  geom_segment(data = grad2plot2.G2, 
+                               mapping = aes(x = grad2.control, 
+                                             y = grad3.control, 
+                                             xend = grad2.case, 
+                                             yend = grad3.case, 
+                                             color = color,
+                                             alpha = alpha.2),
+                               arrow = arrow(length = unit(0.2, "cm"), 
+                                             type = "closed", angle = 20), 
+                               linewidth = 0.8) +
+  scale_color_manual(values = roi.col$gc[order(rownames(roi.col$gc)),], guide = "none") +
+  scale_alpha_continuous(name = "Contributions", range = c(0.1,1), guide = guide_legend()) +
+  scale_shape_manual(values = c(16, 15), name = "Contributing\ndirection", guide = guide_legend()) +
+  labs(x = "Gradient 2", y = "Gradient 3", title = "Gradient 2: from Controls to SSDs\nSignificant contributions") +
+  # ylim(-0.75, 1) + xlim(-1.3, 1.8) +
+  theme(legend.position = "right", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        plot.margin=unit(c(0,-0.2, 0.1, 0), "cm"))
+
+### Cortical brain
+brain_sig2_plot <- brain_sig_grad2dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey20")),
+             atlas = glasser,
+             size = .2,
+             # position = position_brain(hemi~side)
+             )+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig2pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+### Subcortical brain
+subcor.col.G2.black <- ifelse(sigsubcorROI.G2 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G2.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.3,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G2.black ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+### Combined
+fig.3e <- G2.sig + annotation_custom(ggplotify::as.grob(brain_sig2_plot),-1.4,2.2,-0.5, -1.5) +
+  annotation_custom(ggplotify::as.grob(asegbrain_G2.black), 0.85, 1.85, 0.35, 1.2)
+
+# grid.arrange(grobs = list(G2.sig, brain_sig2_plot, asegbrain_G2.black),
+#              widths = c(0.05, 0.75, 0.15, 0.05),
+#              heights = c(0.8, 0.2),
+#              layout_matrix = rbind(c(1,1,1,1),
+#                                    c(NA,2,3,NA)))
+
+## Gradient 3
+### Points
+G2G3.points.pls.G3 <- createFactorMap(G2G3.points2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad3[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad3[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+## Arrows
+G3.sig.noArrows <- G2G3$zeMap_background + G2G3.mean.control$zeMap_text
+
+grad2plot2$alpha.3 = spins_cj$grad3[rownames(grad2plot2), "cjsig1"]*100
+grad2plot2$direction.3 = ifelse(spins_cj$grad3[rownames(grad2plot2), "dir.1"] > 0, "Positive", "Negative")
+
+grad2plot2.G3 <- grad2plot2[grad2plot2$alpha.3 > 0,]
+
+G3.sig <- G3.sig.noArrows + 
+  geom_point(data = grad2plot2.G3,
+             mapping = aes(x = grad2.control, y = grad3.control,color = color,
+                           alpha =  alpha.3,
+                           shape = direction.3), size = 3) +
+  geom_segment(data = grad2plot2.G3, 
+                               mapping = aes(x = grad2.control, 
+                                             y = grad3.control, 
+                                             xend = grad2.case, 
+                                             yend = grad3.case, 
+                                             color = color,
+                                             alpha = alpha.3),
+                               arrow = arrow(length = unit(0.2, "cm"), 
+                                             type = "closed", angle = 20), 
+                               linewidth = 0.8) +
+  scale_color_manual(values = roi.col$gc[order(rownames(roi.col$gc)),], guide = "none") +
+  scale_alpha_continuous(name = "Contributions", range = c(0.1,1), guide = guide_legend(order = 1)) +
+  scale_shape_manual(values = c(16, 15), name = "Contributing\ndirection") +
+  labs(x = "Gradient 2", y = "Gradient 3", title = "Gradient 3: from Controls to SSDs\nSignificant contributions") +
+  ylim(-1.5, 1.25) + #xlim(-1.3, 1.8) +
+  theme(legend.position = "right", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        plot.margin=unit(c(0.1,-0.2, 0, 0), "cm"))
+
+### Cortical brain
+brain_sig3_plot <- brain_sig_grad3dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey20")),
+             atlas = glasser,
+             size = 0.2,
+             # position = position_brain(hemi~side)
+             )+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig3pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+### Subcortical brain
+subcor.col.G3.black <- ifelse(sigsubcorROI.G3 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G3.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.3,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G3.black) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+### Combined
+fig.3f <- G3.sig + annotation_custom(ggplotify::as.grob(brain_sig3_plot),-1.4,2.2,-0.85, -1.85) +
+  annotation_custom(ggplotify::as.grob(asegbrain_G3.black), 0.85, 1.85, 0.35, 1.2)
+
+# grid.arrange(grobs = list(G3.sig, brain_sig3_plot, asegbrain_G3.black),
+#             widths = c(0.05, 0.75, 0.15, 0.05),
+#              heights = c(0.75, 0.25),
+#              layout_matrix = rbind(c(1,1,1,1),
+#                                    c(NA,2,3,NA)))
+```
+
+## Combine
+```{r}
+png(filename = "results/Fig3fromR_switch.png", width = 33, height = 35, units = 'cm', res = 600)
+grid.arrange(grobs = list(fig.3a, fig.3b, fig.3c, fig.3d, fig.3e, fig.3f),
+             widths = c(0.49, 0.01, 0.49),
+             heights = c(0.8,0.2,0.8,0.2,0.2,0.8),
+             layout_matrix = rbind(c(2,4,4),
+                                   c(2,4,4),
+                                   c(3,3,5),
+                                   c(3,3,5),
+                                   c(3,3,6),
+                                   c(1,NA,6)))
+dev.off()
+```
+
+# Figure 4
+
+## Radar plot
+
+```{r}
+# install.packages("fmsb")
+library("fmsb")
+
+## Organize data
+cor.res.total <- data.frame(cor.mat$ci[,1:3],
+c(cor.mat$p[c(1:4),1], cor.mat$p[c(1:4), 2]), c(cor.mat$p.adj[c(1:4),1], cor.mat$p.adj[c(1:4), 2]))
+
+cor.res <- data.frame(cor.indiv.mat$ci[,1:3],
+                       c(cor.indiv.mat$p[c(1:19),1], cor.indiv.mat$p[c(1:19), 2]), c(cor.indiv.mat$p.adj[c(1:19),1], cor.indiv.mat$p.adj[c(1:19), 2]))
+
+colnames(cor.res) <- c("lowerR",
+                       "r",
+                       "upperR",
+                       "p.adj")
+
+cor.res$var1 <- c(rep("Behavioural scores", 19), rep("Brain scores", 19))
+
+cor.res$items <- c("Social engagement/\nwithdrawn", "Interpersonal communication/\nrelationship", "Interpersonal \nprosocial activity", "Recreation \nactivity", "Independence-\nperformance", "Independence-\ncompetence", "Interpersonal", "Instrumental role", "Intrapsychic\nfoundations", "Common objects\nand activities", "Negative\nsymptoms", "Positive\nsymptoms", "Anxiety/\ndepression", "Activation", "Hostility", "Affective flattening\nor blunting", "Alogia", "Avolition/\nApathy", "Asociality/\nAnhedonia")
+
+cor.res$items_cat <- c(rep("bsfs", 6), rep("qls", 4), rep("bprs", 5), rep("sans", 4)) %>% factor(levels = c("bsfs", "qls", "bprs", "sans"))
+
+cor.res$items <- factor(cor.res$items, levels = unique(cor.res$items))
+
+cor.res$item_cat_col <- recode(cor.res$items_cat, !!!sympt.col)
+
+cor.res$item_col <- paste0("<span style=\"color: ", cor.res$item_cat_col, "\">", cor.res$items, "</span>")
+cor.res$item_col <- factor(cor.res$item_col, levels = unique(cor.res$item_col))
+
+
+cor.res$sig <- cor.res$p.adj < 0.05
+
+min <- 0
+max <- 0.25
+sig.neg <- 0
+sig.pos <- 0.13^2
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+theme_set(theme_minimal())
+
+coord_straightpolar <- function(theta = 'x', start = 0, direction = 1, clip = "off") {
+  theta <- match.arg(theta, c("x", "y"))
+  r <- if (theta == "x") 
+    "y"
+  else "x"
+  ggproto(NULL, CoordPolar, theta = theta, r = r, start = start,
+          direction = sign(direction), clip = clip,
+          # This is the different bit
+          is_linear = function(){TRUE})
+}
+
+
+word_angle <-  c(80 - (360 /21 * c(0.5:9.5)), -103 + (360 /20 * c(9.5:0.5)))
+
+## correct spelling
+cor.res$var1[cor.res$var1 == "Behavioural scores"] <- "Cognitive scores"
+
+p.radar <- cor.res %>%
+  # arrange(items) %>%
+  ggplot(aes(x = items, y = r^2, color = var1, group = var1)) + 
+  geom_point(aes(fill = var1, color = ifelse(sign(r) < 0, "Negative", "Positive")), size = 1.2, stroke = 0.8, shape = 21) +
+  geom_line(aes(x = x, y = y, color = var1, group = NA), data = tibble(x = c(1:19), y = 0), color = "black") +
+  geom_line(aes(x = x, y = y, color = var1, group = NA), data = tibble(x = c(19, 1), y = 0), color = "black") +
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = 1:19, ymin = 0, ymax = 0.13^2),
+    fill = "grey40", alpha = 0.5) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1, 19), ymin = 0, ymax = 0.13^2),
+    fill = "grey40", alpha = 0.5) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1: 19), ymin = 0, ymax = 0),
+    fill = "grey20", alpha = 1) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1, 19), ymin = 0, ymax = 0),
+    fill = "grey20", alpha = 1) + 
+  geom_polygon(fill = NA, lwd = 0.5)  +
+  scale_color_manual(values = c("Cognitive scores" = "darkolivegreen4", "Brain scores" = "darkorchid4", "Negative" = "firebrick", "Positive" = "royalblue3"), 
+                     breaks = c("Negative", "Positive")) +
+  scale_fill_manual(values = c("Cognitive scores" = "darkolivegreen4", "Brain scores" = "darkorchid4")) +
+  labs(y = "", color = "Directions of\ncorrelations", fill = "Latent\nvariables")  +
+  ylim(0, 0.125) +
+  annotate('text', x = 1, y = c(0, 0.025, 0.05, 0.075, 0.1, 0.125), label = c("","",0.05, 0.075, 0.1, 0.125), size = 9*5/14) +
+  theme(axis.text.x = element_blank(),
+        #element_text(size = 7, vjust = 0.5, face = "bold",
+                                   # angle = word_angle,
+                                   # color = cor.res$item_cat_col),
+        axis.title.x = element_blank(),
+        legend.position = "bottom",
+        panel.background = element_blank(),     # Remove panel background
+  panel.grid.major = element_line(colour = "grey70"),     # Remove major gridlines
+  panel.border = element_blank(),
+  panel.grid.minor = element_blank(),     # Remove minor gridlines
+  axis.line = element_blank(),            # Remove axis lines
+  axis.ticks = element_blank(),           # Remove axis ticks
+  axis.text = element_blank(),            # Remove axis tick labels
+  legend.background = element_blank(),
+  legend.text = element_text(size = 10)) +
+  coord_straightpolar() +
+  guides(fill = guide_legend(ncol = 1, override.aes = list(size = 2)), color = guide_legend(ncol = 1, override.aes = list(size = 2))) +
+  theme(plot.margin = margin(t = 1, r = 0, b = 1, l = 0, unit = "cm"))
+```
+
+```{r}
+png("results/radarfig_r2.png", width = 7.3, height = 4.5, units = "in", res = 600)
+p.radar
+dev.off()
+```
+
+
+## Correlation plot
+
+```{r}
+corrplot::corrplot(cor(cbind(spins_symp_ssd, ssd.lx[,1:2], ssd.ly[,1:2])), method = "shade")
+
+colnames(spins_symp_ssd) <- c("BSFS", "QLS", "BPRS", "SANS")
+lxly.12 <- cbind(ssd.lx[,1], ssd.ly[,1])
+colnames(lxly.12) <- c("Beh.Dim1", "Brn scores.Dim1")
+
+cor.mat <- psych::corr.test(spins_symp_ssd, lxly.12, adjust = "fdr")
+
+## plot
+corrplot::corrplot(t(cor.mat$r), method = "shade", number.font = 0.2, p.mat = t(cor.mat$p.adj), insig = "blank", title = "Correlation with FDR correction")
+
+## scatter plot
+library(ggpubr)
+data2cor <- data.frame(spins_symp_ssd, lxly.12)
+
+linesize = 2
+
+pBSFS.1 <- data2cor %>% ggplot(aes(x = BSFS, y = Beh.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "firebrick", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, p.adjust.method = "fdr") + 
+  xlab("") + ylab("") + theme_bw() + theme(axis.text.x.bottom = element_blank())
+
+
+pBSFS.2 <- data2cor %>% ggplot(aes(x = BSFS, y = Brn.scores.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "firebrick", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, p.adjust.method = "fdr") + 
+  xlab("") + ylab("") + theme_bw()
+
+pQLS.1 <- data2cor %>% ggplot(aes(x = QLS, y = Beh.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "firebrick", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, p.adjust.method = "fdr") + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.x.bottom = element_blank(),
+                     axis.text.y.left = element_blank())
+
+pQLS.2 <- data2cor %>% ggplot(aes(x = QLS, y = Brn.scores.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "firebrick", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, cor.coef.name = "R") + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.y.left = element_blank())
+
+pBPRS.1 <- data2cor %>% ggplot(aes(x = BPRS, y = Beh.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "black", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, p.adjust.method = "fdr") + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.x.bottom = element_blank(),
+                     axis.text.y.left = element_blank())
+
+pBPRS.2 <- data2cor %>% ggplot(aes(x = BPRS, y = Brn.scores.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "black", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01) + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.y.left = element_blank())
+
+pSANS.1 <- data2cor %>% ggplot(aes(x = SANS, y = Beh.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "royalblue3", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, p.adjust.method = "fdr") + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.x.bottom = element_blank(),
+                     axis.text.y.left = element_blank())
+
+pSANS.2 <- data2cor %>% ggplot(aes(x = SANS, y = Brn.scores.Dim1)) + geom_point(fill = "grey", pch = 21) + geom_smooth(method = "lm", color = "royalblue3", size = linesize) + 
+  # stat_cor(p.accuracy = 0.001, r.accuracy = 0.01) + 
+  xlab("") + ylab("") + 
+  theme_bw() + theme(axis.text.y.left = element_blank())
+
+```
+
+## Combined
+```{r}
+png(file = "results/corrscat_rmNA.png", width = 20, height = 8, units = "cm", res = 600)
+grid.arrange(grobs = list(pBSFS.1, pQLS.1, pBPRS.1, pSANS.1,
+                          pBSFS.2, pQLS.2, pBPRS.2, pSANS.2),
+             nrow = 2)
+dev.off()
+```
+
+

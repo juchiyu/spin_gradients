@@ -24,6 +24,8 @@ library(TExPosition)
 library(PTCA4CATA)
 library(plotly)
 library(colorspace)
+library(gridExtra)
+library(MKinfer) # for bootstrap t
 library(tableone)
 library("RColorBrewer")
 ```
@@ -102,6 +104,7 @@ behav.sub <- lol_spins_behav$record_id[order(lol_spins_behav$record_id)]
 # complete.cases(spins_grads_wide)
 # complete.cases(lol_spins_behav)
 kept.sub <- lol_spins_behav$record_id[complete.cases(lol_spins_behav)==TRUE] # 420
+kept.sub <- kept.sub[kept.sub != "SPN01_ZHP_0150"] # non-eligible
 
 ## grab the matching data
 
@@ -137,25 +140,142 @@ lol_demo_match <- lol_demo[kept.sub,]
 spins_demo <- lol_demo_match %>% 
   select(demo_sex, demo_age_study_entry, diagnostic_group, scog_rmet_total, scog_er40_total, #scog_mean_ea,
          scog_tasit1_total,
-         scog_tasit2_total, scog_tasit3_total,np_composite_tscore, np_domain_tscore_att_vigilance,
-         np_domain_tscore_process_speed, np_domain_tscore_work_mem,
-         np_domain_tscore_verbal_learning, np_domain_tscore_visual_learning,
+         scog_tasit2_sinc,
+         scog_tasit2_simpsar,
+         scog_tasit2_parsar,
+         scog_tasit3_lie,
+         scog_tasit3_sar, 
+         np_domain_tscore_att_vigilance,
+         np_domain_tscore_process_speed,
+         np_domain_tscore_work_mem,
+         np_domain_tscore_verbal_learning,
+         np_domain_tscore_visual_learning,
          np_domain_tscore_reasoning_ps, 
          #bsfs_sec2_total, bsfs_sec3_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
-         #fd_mean_rest
+         fd_mean_rest
   ) %>% data.frame
 colnames(spins_demo)
 rownames(spins_demo) <- lol_demo_match$subject
 
-spins_demo %>%
-  group_by(diagnostic_group) %>%
-  summarise_if(is.numeric, mean, na.rm = TRUE) %>% t
-spins_demo %>%
-  group_by(diagnostic_group) %>%
-  summarize_if(is.numeric, sd, na.rm = TRUE) %>% t
+table(spins_demo$demo_sex, spins_demo$diagnostic_group)/colSums(table(spins_demo$demo_sex, spins_demo$diagnostic_group)) 
+  
 
-cbind(table(spins_demo$diagnostic_group, spins_demo$demo_sex), table(spins_demo$diagnostic_group))
+## Statistic testing
+demo_summary <- spins_demo %>% 
+  select(-demo_sex, demo_age_study_entry) %>%
+  gather(key = variable, value = value, -diagnostic_group) %>% 
+  group_by(diagnostic_group, variable) %>% 
+  summarise(value = list(value)) %>% 
+  spread(diagnostic_group, value) %>% 
+  group_by(variable) %>% 
+  mutate(
+    mean_ssd = mean(unlist(case), na.rm = TRUE),
+    mean_control = mean(unlist(control), na.rm = TRUE),
+    sd_ssd = sd(unlist(case), na.rm = TRUE),
+    sd_control = sd(unlist(control), na.rm = TRUE),
+    var_equal_p = var.test(unlist(case), unlist(control))$p.value,
+    norm_ssd = shapiro.test(unlist(case))$p.value,
+    norm_control = shapiro.test(unlist(control))$p.value) %>%
+  mutate(method = if_else(norm_ssd > .05 | norm_control > .05,
+                          "boot", if_else(var_equal_p > .05, "welch", "student"))) %>%
+  mutate(
+    t_value = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$statistic,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$statistic),
+    df = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$parameter,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$parameter),
+    p_value = case_when(
+      method == "boot" ~ boot.t.test(unlist(case), unlist(control))$boot.p.value,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$p.value,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$p.value))
+
+demo_summary$p_FDR <- p.adjust(demo_summary$p_value, method = "fdr") 
+
+demo_summary
+
+lol_original$scanner %>% table
+
 ```
+
+## More demographics
+
+```{r}
+## symptoms
+behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
+  select(record_id, diagnostic_group,bsfs_total, qls_total, bprs_factor_total, sans_total_sc, 
+         bsfs_sec1_total, bsfs_sec2_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
+    qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
+    qls_factor_intrapsychic, qls_factor_comm_obj_activities, bprs_factor_neg_symp,
+    bprs_factor_pos_symp, bprs_factor_anxiety_depression, bprs_factor_activation, bprs_factor_hostility, sans_sub_affective_flat_blunt, sans_sub_alogia, sans_sub_avolition_apathy, sans_sub_asocial_anhedonia)
+rownames(behav_sympt) <- behav_sympt$record_id
+
+## cpz equivalence
+cpz <- read.csv("../data/final_cpzeqv.csv")
+rownames(cpz) <- cpz$record_id
+
+## more - wtar and parental edu
+raw_behav <- read.csv("../data/SPINS_2022-03-10_1421.csv") %>% select(record_np_id, wtar_std_score, demo_highest_grade_mom, demo_highest_grade_dad) %>% mutate(edu_mom = ifelse(demo_highest_grade_mom != 101, demo_highest_grade_mom, NA),
+       edu_dad = ifelse(demo_highest_grade_dad != 101, demo_highest_grade_dad, NA),)
+rownames(raw_behav) <- raw_behav$record_np_id
+
+## combined
+add_demo <- cbind(behav_sympt[kept.sub, ], raw_behav[kept.sub,], cpz[kept.sub,]) %>% 
+  select(diagnostic_group,cpz_eq_total,
+         edu_mom,edu_dad, wtar_std_score, 
+         bprs_factor_total, sans_total_sc, bsfs_total, qls_total)
+
+## stats test
+### mean and sd for all measures - 
+###        wtar, parental education, cpz, bprs, sans, bsfs, qls
+add_demo_summary <- add_demo %>% 
+  gather(key = variable, value = value, -diagnostic_group) %>% 
+  group_by(diagnostic_group, variable) %>% 
+  summarise(value = list(value)) %>% 
+  spread(diagnostic_group, value) %>% 
+  group_by(variable) %>% 
+  mutate(
+    mean_ssd = mean(unlist(case), na.rm = TRUE),
+    mean_control = mean(unlist(control), na.rm = TRUE),
+    sd_ssd = sd(unlist(case), na.rm = TRUE),
+    sd_control = sd(unlist(control), na.rm = TRUE))
+
+### for measures that can do group comparisons -
+###       wtar, parental education, bsfs
+add_demo2compare_summary <- add_demo %>% 
+  select(diagnostic_group, bsfs_total, edu_mom, edu_dad, wtar_std_score) %>%
+  gather(key = variable, value = value, -diagnostic_group) %>% 
+  group_by(diagnostic_group, variable) %>% 
+  summarise(value = list(value)) %>% 
+  spread(diagnostic_group, value) %>% 
+  group_by(variable) %>%
+  mutate(
+    var_equal_p = var.test(unlist(case), unlist(control))$p.value,
+    norm_ssd = shapiro.test(unlist(case))$p.value,
+    norm_control = shapiro.test(unlist(control))$p.value) %>%
+  mutate(method = if_else(norm_ssd > .05 | norm_control > .05,
+                          "boot", if_else(var_equal_p > .05, "welch", "student"))) %>%
+  mutate(
+    t_value = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$statistic,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$statistic),
+    df = case_when(
+      method == "boot" ~ 999,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$parameter,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$parameter),
+    p_value = case_when(
+      method == "boot" ~ boot.t.test(unlist(case), unlist(control))$boot.p.value,
+      method == "welch" ~ t.test(unlist(case), unlist(control), var.equal = FALSE)$p.value,
+      method == "student" ~ t.test(unlist(case), unlist(control), var.equal = TRUE)$p.value))
+
+add_demo2compare_summary$p_FDR <- p.adjust(add_demo2compare_summary$p_value, method = "fdr") 
+
+add_demo2compare_summary
+```
+
 
 
 ## Regress out the effects
@@ -1208,11 +1328,11 @@ glasser_brain4plot <- pq_for_plot %>%
    group_by(gradient) %>%
    filter(gradient == "grad1") %>%
   ggplot() +
-  geom_brain(mapping = aes(fill = network),
+  geom_brain(mapping = aes(fill = network, size = I(0.001)),
              atlas = glasser,
              position = position_brain(hemi~side))+
   scale_fill_manual(name = "Networks", values = net.col.idx.light) +
-  ggtitle("Gradients")+
+  ggtitle("Glasser") +
   theme(axis.text.y.left = element_blank(), 
         axis.text.x.bottom = element_blank(),
         legend.position = "") + 
@@ -1356,7 +1476,7 @@ G1G2.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
                                   col.background = "grey96",
                                   col.axes = "grey30")
 
-G1G2.roi.case$zeMap_background + G1G2.roi.case$zeMap_dots + G1G2.mean.case$zeMap_dots + G1G2.mean.case$zeMap_text + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradients: SSD")
+G1G2.roi.control$zeMap_background + G1G2.roi.case$zeMap_dots + G1G2.mean.case$zeMap_dots + G1G2.mean.case$zeMap_text + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("Gradients: SSD")
 
 ## Gradients 2 & 3
 G2G3.roi.control <- createFactorMap(spins_mean_bygrp[,6:8],
@@ -1397,6 +1517,17 @@ G2G3.mean.case <- createFactorMap(net_mean_bygrp[,2:4],
 
 G2G3.roi.case$zeMap_background + G2G3.roi.case$zeMap_dots + G2G3.mean.case$zeMap_dots + G2G3.mean.case$zeMap_text + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("Gradients: SSD")
 
+
+```
+
+
+
+```{r}
+## Extract statistics
+Extr_F <- all_roi_test %>% group_by(Network, gradient) %>%  summarise(Fmin = min(statistic.cor[abs(statistic.cor) > 0]),
+                                                            Fmax = max(statistic.cor[abs(statistic.cor) > 0]),
+                                                            n = sum(p_FDR < 0.05))
+Extr_F
 
 ```
 
@@ -1588,7 +1719,7 @@ G1G2.arrows.roi <- annotate("segment",
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case")
+G1G2.roi.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From Control to SSDs")
 
 G2G3.arrows.roi <- annotate("segment", 
                             x = grad2plot2$grad2.control, 
@@ -1601,7 +1732,7 @@ G2G3.arrows.roi <- annotate("segment",
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
+G2G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From Control to SSDs")
 ```
 
 #### By contributions and significance to PLS
@@ -1618,31 +1749,55 @@ G1G2.arrows.roi.impG1 <- annotate("segment",
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
-G1G2.arrows.roi.sigG1pos <- annotate("segment", 
+
+G1G2.points2plot.sigG1 <- cbind(grad2plot2$grad1.control, grad2plot2$grad2.control)
+G1G2.points.pls <- createFactorMap(G1G2.points2plot.sigG1,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad1[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad1[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G1G2.arrows.roi.sigG1 <- annotate("segment", 
                             x = grad2plot2$grad1.control, 
                             y = grad2plot2$grad2.control, 
                             xend = grad2plot2$grad1.case, 
                             yend = grad2plot2$grad2.case, 
                             color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 20), 
-                            linewidth = 0.8)
-G1G2.arrows.roi.sigG1neg <- annotate("segment", 
-                            x = grad2plot2$grad1.control, 
-                            y = grad2plot2$grad2.control, 
-                            xend = grad2plot2$grad1.case, 
-                            yend = grad2plot2$grad2.case, 
-                            color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
+                            alpha = spins_cj$grad1[rownames(grad2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.impG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nContribute more than average")
-glasser_brain4plot
-G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.sigG1pos + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: positive")
-G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.sigG1neg + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: negative")
+
+
+
+G1G2.roi.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.arrows.roi.impG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nContribute more than average")
+
+brain_sig_grad1dat <- pqxcj_for_plot %>%
+  as.data.frame() %>%
+   group_by(gradient) %>%
+   filter(gradient == "grad1")
+cjsig1pick <- brain_sig_grad1dat$cjsig1 %>% setNames(brain_sig_grad1dat$ROI)
+
+  
+brain_sig1 <- brain_sig_grad1dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey70")),
+             atlas = glasser,
+             position = position_brain(hemi~side))+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig1pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.points.pls$zeMap_dots + G1G2.arrows.roi.sigG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant Gradient 1 contribution")+ annotation_custom(ggplotify::as.grob(brain_sig1),-0.10,1.2,0.60,2) 
+
 
 G2G3.arrows.roi.impG2 <- annotate("segment", 
                             x = grad2plot2$grad2.control, 
@@ -1655,34 +1810,54 @@ G2G3.arrows.roi.impG2 <- annotate("segment",
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G2G3.arrows.roi.sigG2pos <- annotate("segment", 
+G2G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text +G2G3.arrows.roi.impG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average")
+
+G2G3.points2plot.sigG2 <- cbind(grad2plot2$grad2.control, grad2plot2$grad3.control)
+G2G3.points.pls.G2 <- createFactorMap(G2G3.points2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad2[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad2[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+G2G3.arrows.roi.sigG2 <- annotate("segment", 
                             x = grad2plot2$grad2.control, 
                             y = grad2plot2$grad3.control, 
                             xend = grad2plot2$grad2.case, 
                             yend = grad2plot2$grad3.case, 
                             color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
+                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G2G3.arrows.roi.sigG2neg <- annotate("segment", 
-                            x = grad2plot2$grad2.control, 
-                            y = grad2plot2$grad3.control, 
-                            xend = grad2plot2$grad2.case, 
-                            yend = grad2plot2$grad3.case, 
-                            color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad2[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 20), 
-                            linewidth = 0.8)
+brain_sig_grad2dat <- pqxcj_for_plot %>%
+  as.data.frame() %>%
+   group_by(gradient) %>%
+   filter(gradient == "grad2")
+cjsig2pick <- brain_sig_grad2dat$cjsig1 %>% setNames(brain_sig_grad2dat$ROI)
 
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.impG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average")
+brain_sig2 <- brain_sig_grad2dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey70")),
+             atlas = glasser,
+             position = position_brain(side ~ hemi))+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig2pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
 
-glasser_brain4plot
-
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG2pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: positive")
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG2neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: negative")
+G2G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.points.pls.G2$zeMap_dots + G2G3.arrows.roi.sigG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 2 contribution") +
+  # ylim(-0.6, 1) +
+  # xlim(-1.1, 1.6) +
+  ylim(-1.1, 1) +
+  xlim(-1.05, 1.8) +
+  annotation_custom(ggplotify::as.grob(brain_sig2),0.5,1.7,0.3,1.1) 
 
 G2G3.arrows.roi.impG3 <- annotate("segment", 
                             x = grad2plot2$grad2.control, 
@@ -1695,39 +1870,58 @@ G2G3.arrows.roi.impG3 <- annotate("segment",
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G2G3.arrows.roi.sigG3pos <- annotate("segment", 
+G2G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.impG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average")
+
+G2G3.points.pls.G3 <- createFactorMap(G2G3.points2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.col$oc[rownames(grad2plot),],
+                        pch = ifelse(spins_cj$grad3[rownames(grad2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad3[rownames(grad2plot2), "cjsig1"]*100,
+                        col.background = "grey96",
+                        col.axes = "grey30")
+
+
+G2G3.arrows.roi.sigG3 <- annotate("segment", 
                             x = grad2plot2$grad2.control, 
                             y = grad2plot2$grad3.control, 
                             xend = grad2plot2$grad2.case, 
                             yend = grad2plot2$grad3.case, 
                             color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjsig1.pos"]*100,#0.2, 
+                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 20), 
                             linewidth = 0.8)
 
-G2G3.arrows.roi.sigG3neg <- annotate("segment", 
-                            x = grad2plot2$grad2.control, 
-                            y = grad2plot2$grad3.control, 
-                            xend = grad2plot2$grad2.case, 
-                            yend = grad2plot2$grad3.case, 
-                            color = roi.col$oc[rownames(grad2plot2),], 
-                            alpha = spins_cj$grad3[rownames(grad2plot2), "cjsig1.neg"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 20), 
-                            linewidth = 0.8)
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.impG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
-glasser_brain4plot
+brain_sig_grad3dat <- pqxcj_for_plot %>%
+  as.data.frame() %>%
+   group_by(gradient) %>%
+   filter(gradient == "grad3")
+cjsig3pick <- brain_sig_grad3dat$cjsig1 %>% setNames(brain_sig_grad3dat$ROI)
 
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG3pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
-G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.arrows.roi.sigG3neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case")
+brain_sig3 <- brain_sig_grad3dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey70")),
+             atlas = glasser,
+             position = position_brain(side ~ hemi))+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig3pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+G2G3.roi.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.points.pls.G3$zeMap_dots +  G2G3.arrows.roi.sigG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 3 contribution") +  
+  ylim(-1.1, 1) +
+  xlim(-1.05, 1.8) + annotation_custom(ggplotify::as.grob(brain_sig3),0.65,1.95,0,1.1) 
 
 ```
 
 ### Subcortical
 
-```{r, echo = FALSE, warning= FALSE, message='hide', include = FALSE}
-subcor.col <- c("grey60", "grey60", "#a6cee3", "#1f78b4", "white", "#b2df8a", "white", "#B03060", "#ff7f00", "#CD6889", "white", "white", "#33a02c", "#EE9A49", "#B452CD", "#68228B", "#FFD700", "#D1AE22", rep("white", 11)) %>% setNames(aseg$data$label)
+```{r, echo = FALSE, warning= FALSE, message='hide'}
+subcor.col <- c("grey60", "grey60", "#a6cee3", "#1f78b4", "grey60", "#b2df8a", "grey60", "#B03060", "#ff7f00", "#CD6889", "grey60", "grey60", "#33a02c", "#EE9A49", "#B452CD", "#68228B", "#FFD700", "#D1AE22", rep("grey60", 11)) %>% setNames(aseg$data$label)
 names(subcor.col)[c(1,2,29)] <- NA
 
 asegbrain <- ggseg(atlas="aseg", 
@@ -1790,22 +1984,22 @@ roi.subcor.idx$color <- subroi.col
 G1G2.mean.control4subcort <- createFactorMap(net_mean_bygrp[,5:7],
                                      axis1 = 1, axis2 = 2,
                                      col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = "black",
                                      cex = 2,
                                      text.cex = 3,
                                      alpha.points = 0.7,
-                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.5),
+                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.3),
                                      col.background = "grey96",
                                      col.axes = "grey30")
 
 G2G3.mean.control4subcort <- createFactorMap(net_mean_bygrp[,5:7],
                                      axis1 = 2, axis2 = 3,
                                      col.points = roi.col$gc[net_mean_bygrp$Network,],
-                                     col.labels = roi.col$gc[net_mean_bygrp$Network,],
+                                     col.labels = "black",
                                      cex = 2,
                                      text.cex = 3,
                                      alpha.points = 0.7,
-                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.5),
+                                     alpha.labels = ifelse(net_mean_bygrp$Network == "Subcortical", 1, 0.3),
                                      col.background = "grey96",
                                      col.axes = "grey30")
 
@@ -1852,31 +2046,58 @@ G1G2.arrows.subcorROI.impG1 <- annotate("segment",
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
-G1G2.arrows.subcorROI.sigG1pos <- annotate("segment", 
+
+G1G2.subcorpoints2plot.sigG1 <- cbind(subroi2plot2$grad1.control, subroi2plot2$grad2.control)
+G1G2.subcorpoints.pls <- createFactorMap(G1G2.subcorpoints2plot.sigG1,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.subcor.idx[rownames(subroi2plot2),"color"],
+                        pch = ifelse(spins_cj$grad1[rownames(subroi2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad1[rownames(subroi2plot2), "cjsig1"]*100)
+                              
+
+G1G2.arrows.subcorROI.sigG1 <- annotate("segment", 
                             x = subroi2plot2$grad1.control, 
                             y = subroi2plot2$grad2.control, 
                             xend = subroi2plot2$grad1.case, 
                             yend = subroi2plot2$grad2.case, 
                             color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 30), 
-                            linewidth = 0.8)
-G1G2.arrows.subcorROI.sigG1neg <- annotate("segment", 
-                            x = subroi2plot2$grad1.control, 
-                            y = subroi2plot2$grad2.control, 
-                            xend = subroi2plot2$grad1.case, 
-                            yend = subroi2plot2$grad2.case, 
-                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
+                            alpha = spins_cj_subcor$grad1[rownames(subroi2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
 
+sigsubcorROI.G1 <- subcor.col %in% ifelse(spins_cj$grad1[rownames(subroi2plot2), "cjsig1"] != 0, roi.subcor.idx[rownames(subroi2plot2),"color"], NA)
+subcor.col.G1 <- ifelse(sigsubcorROI.G1 == TRUE, subcor.col, "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G1 <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G1 ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+subcor.col.G1.black <- ifelse(sigsubcorROI.G1 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G1.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G1.black ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+
 G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.impG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nContribute more than average") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
-ggplot()
-G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.sigG1pos + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: positive") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
-G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.arrows.subcorROI.sigG1neg + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant contribution: negative") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0,1.1,0.55,1.75)
+
+G1G2.mean.control4subcort$zeMap_background + G1G2.mean.control4subcort$zeMap_text + G1G2.subcorpoints.pls$zeMap_dots + G1G2.arrows.subcorROI.sigG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant Gradient 1 contribution") + annotation_custom(ggplotify::as.grob(asegbrain_G1),0,1.1,0.55,1.75)
 
 G2G3.arrows.subcorROI.impG2 <- annotate("segment", 
                             x = subroi2plot2$grad2.control, 
@@ -1889,32 +2110,56 @@ G2G3.arrows.subcorROI.impG2 <- annotate("segment",
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
 
-G2G3.arrows.subcorROI.sigG2pos <- annotate("segment", 
+G2G3.subcorpoints2plot.sigG2 <- cbind(subroi2plot2$grad2.control, subroi2plot2$grad3.control)
+G2G3.subcorpoints.pls.G2 <- createFactorMap(G2G3.subcorpoints2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.subcor.idx[rownames(subroi2plot2),"color"],
+                        pch = ifelse(spins_cj$grad2[rownames(subroi2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad2[rownames(subroi2plot2), "cjsig1"]*100)
+
+
+G2G3.arrows.subcorROI.sigG2 <- annotate("segment", 
                             x = subroi2plot2$grad2.control, 
                             y = subroi2plot2$grad3.control, 
                             xend = subroi2plot2$grad2.case, 
                             yend = subroi2plot2$grad3.case, 
                             color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
+                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
 
-G2G3.arrows.subcorROI.sigG2neg <- annotate("segment", 
-                            x = subroi2plot2$grad2.control, 
-                            y = subroi2plot2$grad3.control, 
-                            xend = subroi2plot2$grad2.case, 
-                            yend = subroi2plot2$grad3.case, 
-                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad2[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 30), 
-                            linewidth = 0.8)
+sigsubcorROI.G2 <- subcor.col %in% ifelse(spins_cj$grad2[rownames(subroi2plot2), "cjsig1"] != 0, roi.subcor.idx[rownames(subroi2plot2),"color"], NA)
+subcor.col.G2 <- ifelse(sigsubcorROI.G2 == TRUE, subcor.col, "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G2 <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G2 ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+subcor.col.G2.black <- ifelse(sigsubcorROI.G2 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G2.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G2.black ) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
 
 G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.impG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nContribute more than average") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
-ggplot()
-G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG2pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: positive") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
-G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG2neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant contribution: negative") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.subcorpoints.pls.G2$zeMap_dots + G2G3.arrows.subcorROI.sigG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 2 contribution") + annotation_custom(ggplotify::as.grob(asegbrain_G2),0.75,1.75,-0.15,0.75)
 
 G2G3.arrows.subcorROI.impG3 <- annotate("segment", 
                             x = subroi2plot2$grad2.control, 
@@ -1927,33 +2172,115 @@ G2G3.arrows.subcorROI.impG3 <- annotate("segment",
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
 
-G2G3.arrows.subcorROI.sigG3pos <- annotate("segment", 
+G2G3.subcorpoints.pls.G3 <- createFactorMap(G2G3.subcorpoints2plot.sigG2,
+                        axis1 = 1, axis2 = 2,
+                        col.points = roi.subcor.idx[rownames(subroi2plot2),"color"],
+                        pch = ifelse(spins_cj$grad3[rownames(subroi2plot2), "dir.1"] > 0, 15, 16),
+                        cex = 3,
+                        alpha.points = spins_cj$grad3[rownames(subroi2plot2), "cjsig1"]*100)
+
+G2G3.arrows.subcorROI.sigG3 <- annotate("segment", 
                             x = subroi2plot2$grad2.control, 
                             y = subroi2plot2$grad3.control, 
                             xend = subroi2plot2$grad2.case, 
                             yend = subroi2plot2$grad3.case, 
                             color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjsig1.pos"]*100,#0.2, 
+                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjsig1"]*100,#0.2, 
                             arrow = arrow(length = unit(0.2, "cm"), 
                                           type = "closed", angle = 30), 
                             linewidth = 0.8)
 
-G2G3.arrows.subcorROI.sigG3neg <- annotate("segment", 
-                            x = subroi2plot2$grad2.control, 
-                            y = subroi2plot2$grad3.control, 
-                            xend = subroi2plot2$grad2.case, 
-                            yend = subroi2plot2$grad3.case, 
-                            color = roi.subcor.idx[rownames(subroi2plot2),"color"], 
-                            alpha = spins_cj_subcor$grad3[rownames(subroi2plot2), "cjsig1.neg"]*100,#0.2, 
-                            arrow = arrow(length = unit(0.2, "cm"), 
-                                          type = "closed", angle = 30), 
-                            linewidth = 0.8)
+sigsubcorROI.G3 <- subcor.col %in% ifelse(spins_cj$grad3[rownames(subroi2plot2), "cjsig1"] != 0, roi.subcor.idx[rownames(subroi2plot2),"color"], NA)
+subcor.col.G3 <- ifelse(sigsubcorROI.G3 == TRUE, subcor.col, "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G3 <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G3) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+subcor.col.G3.black <- ifelse(sigsubcorROI.G3 == TRUE, "black", "grey96") %>% setNames(names(subcor.col))
+
+asegbrain_G3.black <- ggseg(atlas="aseg", 
+        mapping=aes(fill= label, size = I(0.001), color = I("grey70")), 
+        colour="black", 
+        size=.5,
+        hemisphere = c("left", "right")) + 
+  scale_fill_manual(name = "Regions", values = subcor.col.G3.black) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain() + theme(text = element_blank())
+
+
 G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.impG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
-ggplot()
-G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG3pos + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
-G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.arrows.subcorROI.sigG3neg + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case") + annotation_custom(ggplotify::as.grob(asegbrainInPlot),0.75,1.75,-0.15,0.75)
+
+G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_text + G2G3.subcorpoints.pls.G3$zeMap_dots + G2G3.arrows.subcorROI.sigG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 3 contribution") + annotation_custom(ggplotify::as.grob(asegbrain_G3),0.75,1.75,-0.15,0.75)
 
 ```
+
+### Merge figures
+
+```{r, echo = FALSE, warning= FALSE, message='hide', out.width='100%'}
+G1.sig <- G1G2.mean.control$zeMap_background + G1G2.mean.control$zeMap_text + G1G2.points.pls$zeMap_dots + G1G2.arrows.roi.sigG1 + xlab( "Gradient 1") + ylab("Gradient 2") + ggtitle("From control to case\nSignificant Gradient 1 contribution")
+# annotation_custom(ggplotify::as.grob(brain_sig1),-0.10,1.2,0.60,2)  + annotation_custom(ggplotify::as.grob(asegbrain_G1.black),.6,1.2,0.4,0.9)
+
+grid.arrange(grobs = list(G1.sig, brain_sig1, asegbrain_G1.black),
+             widths = c(0.5, 0.5),
+             heights = c(0.6, 0.3, 0.1),
+             layout_matrix = rbind(c(1,2),
+                                   c(1,3),
+                                   c(1,NA)))
+
+G2.sig <- G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.points.pls.G2$zeMap_dots + G2G3.arrows.roi.sigG2 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 2 contribution") 
+# annotation_custom(ggplotify::as.grob(brain_sig2),0.9,1.8,0.15,0.8) + annotation_custom(ggplotify::as.grob(asegbrain_G2.black),0.75,1.75,-0.15,0.75)
+
+brain_sig2_plot <- brain_sig_grad2dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey70")),
+             atlas = glasser)+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig2pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+grid.arrange(grobs = list(G2.sig, brain_sig2_plot, asegbrain_G2.black),
+             widths = c(0.05, 0.7, 0.2, 0.05),
+             heights = c(0.75, 0.25),
+             layout_matrix = rbind(c(1,1,1,1),
+                                   c(NA,2,3,NA)))
+
+G3.sig <- G2G3.mean.control$zeMap_background + G2G3.mean.control$zeMap_text + G2G3.points.pls.G3$zeMap_dots + G2G3.arrows.roi.sigG3 + xlab( "Gradient 2") + ylab("Gradient 3") + ggtitle("From control to case\nSignificant Gradient 3 contribution")
+# annotation_custom(ggplotify::as.grob(brain_sig3),0.9,1.8,0.15,0.8) + annotation_custom(ggplotify::as.grob(asegbrain_G3.black),0.75,1.75,-0.15,0.75)
+
+brain_sig3_plot <- brain_sig_grad3dat %>% ggplot() +
+  geom_brain(mapping = aes(fill = ROI, size = I(0.001), color = I("grey70")),
+             atlas = glasser)+
+  scale_fill_manual(name = "Networks", 
+                    values = ifelse(cjsig3pick[pqxcj_for_plot$ROI] != 0, 
+                                    roi.col$oc[pqxcj_for_plot$ROI,],
+                                    "grey96")) +
+  theme(axis.text.y.left = element_blank(), 
+        axis.text.x.bottom = element_blank(),
+        legend.position = "") + 
+  theme_brain(text.family = "Calibri")
+
+grid.arrange(grobs = list(G3.sig, brain_sig3_plot, asegbrain_G3.black),
+            widths = c(0.05, 0.7, 0.2, 0.05),
+             heights = c(0.75, 0.25),
+             layout_matrix = rbind(c(1,1,1,1),
+                                   c(NA,2,3,NA)))
+
+```
+
 
 <!-- ### Dimension 1 -->
 
@@ -1990,7 +2317,7 @@ G2G3.mean.control4subcort$zeMap_background + G2G3.mean.control4subcort$zeMap_tex
 ### Correlation to composite scores
 
 ```{r, echo = FALSE}
-behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
+behav_sympt <- read.csv("../data/spins_behav_data_full_05-31-2022.csv") %>%
   select(record_id, bsfs_total, qls_total, bprs_factor_total, sans_total_sc, 
          bsfs_sec1_total, bsfs_sec2_total, bsfs_sec3_total, bsfs_sec4_total, bsfs_sec5_total, bsfs_sec6_total,
     qls20_empathy, qls_factor_interpersonal, qls_factor_instrumental_role,
@@ -1999,8 +2326,9 @@ behav_sympt <- read.csv("../data/spins_behav_data_full_03-03-2022.csv") %>%
 rownames(behav_sympt) <- behav_sympt$record_id
 
 lol_spins_behav_smp <- cbind(lol_spins_behav, behav_sympt[lol_spins_behav$record_id, ])
-lol_spins_behav_ssd <- lol_spins_behav_smp[lol_spins_behav_smp$diagnostic_group == "case",]
-lol_spins_behav_ssd <- lol_spins_behav_ssd[complete.cases(lol_spins_behav_ssd),] # removing two people with missing qls
+lol_spins_behav_ssd <- lol_spins_behav_smp[lol_spins_behav_smp$diagnostic_group == "case" & rownames(lol_spins_behav_smp) != "SPN01_ZHP_0150",]
+# lol_spins_behav_ssd <- lol_spins_behav_ssd[complete.cases(lol_spins_behav_ssd),] 
+# removing four people with missing qls
 
 ## SSD subjects
 ssd.sub <- lol_spins_behav_ssd$record_id
@@ -2015,6 +2343,14 @@ spins_symp_ssd <- lol_spins_behav_ssd %>%
     bsfs_total, qls_total, bprs_factor_total, sans_total_sc
   ) %>% data.frame
 rownames(spins_symp_ssd) <- lol_spins_behav_ssd$record_id
+
+## replace people with NAs in SANS subscores as NAs
+spins_getsans_ssd <- lol_spins_behav_ssd %>% 
+  select(sans_sub_affective_flat_blunt, sans_sub_alogia, sans_sub_avolition_apathy, sans_sub_asocial_anhedonia)
+
+complete.sans <- complete.cases(spins_getsans_ssd)
+
+spins_symp_ssd[!complete.sans,"sans_total_sc"] <- NA
 
 ## select lx/ly
 ssd.lx <- pls.res$TExPosition.Data$lx[ssd.sub,]
@@ -2039,19 +2375,24 @@ sympt.dx$type.col <- recode(sympt.dx$type, !!!sympt.col)
 ```{r, echo = FALSE, warning= FALSE, message='hide'}
 corrplot::corrplot(cor(cbind(spins_symp_ssd, ssd.lx[,1:2], ssd.ly[,1:2])), method = "shade")
 
-colnames(spins_symp_ssd) <- c("Birchwood Social Functioning Scale ", "Quality of Life Scale", "Brief Psychiatric Rating Scale", "SANS Negative Symptoms")
-lxly.12 <- cbind(ssd.lx[,1], ssd.ly[,1],ssd.lx[,2], ssd.ly[,2])
-colnames(lxly.12) <- c("Behavioural scores.Dim1", "Brain scores.Dim1", "Behavioural scores.Dim2", "Brain scores.Dim2")
+colnames(spins_symp_ssd) <- c("BSFS", "QLS", "BPRS", "SANS")
+# lxly.12 <- cbind(ssd.lx[,1], ssd.ly[,1],ssd.lx[,2], ssd.ly[,2])
+# colnames(lxly.12) <- c("Behavioural scores.Dim1", "Brain scores.Dim1", "Behavioural scores.Dim2", "Brain scores.Dim2")
+lxly.12 <- cbind(ssd.lx[,1], ssd.ly[,1])
+colnames(lxly.12) <- c("Beh.Dim1", "Brn scores.Dim1")
 
 cor.mat <- psych::corr.test(spins_symp_ssd, lxly.12, adjust = "fdr")
 
+cor.res.total <- data.frame(round(cor.mat$ci[,1:3], 2),
+# round(c(cor.mat$p[c(1:4),1], cor.mat$p[c(1:4), 2]),4),
+round(c(cor.mat$p.adj[c(1:4),1], cor.mat$p.adj[c(1:4), 2]),4))
+
 ## plot
-corrplot::corrplot(t(cor.mat$r), method = "shade", addCoef.col = TRUE, addCoefasPercent = TRUE, number.font = 0.2, p.mat = t(cor.mat$p), insig = "blank", title = "Correlation with FDR correction")
+corrplot::corrplot(t(cor.mat$r), method = "shade", number.font = 0.2, p.mat = t(cor.mat$p.adj), insig = "blank", title = "Correlation with FDR correction")
 
 panel.lm<-
 function (x, y, col = par("col"), bg = NA, pch = par("pch"),
-cex = 1, col.lm = "red", lwd=par("lwd"), ...)
-{
+cex = 1, col.lm = "red", lwd=par("lwd"), ...){
 points(x, y, pch = pch, col = col, bg = bg, cex = cex)
 ok <- is.finite(x) & is.finite(y)
 if (any(ok))
@@ -2074,10 +2415,17 @@ qls_factor_interpersonal, qls_factor_instrumental_role,
   ) %>% data.frame
 rownames(spins_symp_ssd_indiv) <- lol_spins_behav_ssd$record_id
 
+## descriptive stats
+cbind(Mean = round(colMeans(spins_symp_ssd_indiv, na.rm = TRUE),2),
+      SD = round(apply(spins_symp_ssd_indiv, 2, sd, na.rm = TRUE),2))
+
+apply(spins_symp_ssd_indiv, 2, function(x) sum(is.na(x)))
 ```
 
+
+
 ```{r, echo = FALSE, warning= FALSE, message='hide'}
-corrplot::corrplot(cor(cbind(spins_symp_ssd_indiv, ssd.lx[,1:2], ssd.ly[,1:2])), method = "shade")
+corrplot::corrplot(cor(cbind(spins_symp_ssd_indiv, ssd.lx[,1], ssd.ly[,1])), method = "shade")
 
 cor.indiv.mat <- psych::corr.test(spins_symp_ssd_indiv, lxly.12, adjust = "fdr")
 
@@ -2122,6 +2470,182 @@ TeachingDemos::pairs2(spins_symp_ssd_indiv, lxly.12, panel=panel.lm, pch = 16, c
 
 ```
 
-```{r, include = FALSE}
-save(pls.res, pls.boot, pq_for_plot, grad.dat, sub.dx, file = "../data/pls_grad_combat_res.rda")
+## Test medication effect
+
+```{r}
+## get data
+cpz <- read.csv("../data/final_cpzeqv.csv")
+rownames(cpz) <- cpz$record_id
+
+#spins_symp_ssd_indiv, 
+LV.dat <- data.frame(lxly.12)
+cpz.clean <- cpz[rownames(spins_symp_ssd_indiv),]
+cpz.clean.complete <- cpz.clean[complete.cases(cpz.clean),]
+
+spins_symp_ssd4cor <- spins_symp_ssd[rownames(cpz.clean.complete),]
+
+LV.dat4cor <- LV.dat[rownames(cpz.clean.complete),]
+
+## regress out cpz
+spins_symp_ssd_noCPZ <- spins_symp_ssd4cor
+  
+CPZregress <- apply(spins_symp_ssd4cor, 2, function(x){
+  lm(x~cpz.clean.complete$cpz_eq_total)$residuals
+})
+
+for (i in 1:ncol(spins_symp_ssd_noCPZ)){
+  spins_symp_ssd_noCPZ[names(CPZregress[[i]]), i] <- CPZregress[[i]]
+}
+
+## test with cpz
+noCPZ.cormat <- psych::corr.test(spins_symp_ssd_noCPZ, LV.dat4cor, adjust = "fdr")
+
+noCPZ.cor.res.total <- data.frame(round(noCPZ.cormat$ci[,1:3], 2),
+# round(c(noCPZ.cormat$p[c(1:4),1], noCPZ.cormat$p[c(1:4), 2]),4),
+round(c(noCPZ.cormat$p.adj[c(1:4),1], noCPZ.cormat$p.adj[c(1:4), 2]),4))
+
+
+#=========Other plots================================
+cor(data.frame(lm(spins_symp_ssd$`Birchwood Social Functioning Scale ` ~ cpz.clean$cpz_eq_total)$residuals), LV.dat$Behavioural.scores.Dim1)
+
+lm(LV.dat$Behavioural.scores.Dim1 ~ cpz.clean$cpz_eq_total) %>% summary() # n.s.
+lm(LV.dat$Brain.scores.Dim1 ~ cpz.clean$cpz_eq_total) %>% summary() # n.s.
+
+
+## behavioral scores
+lm(spins_symp_ssd$`Birchwood Social Functioning Scale ` ~ LV.dat$Behavioural.scores.Dim1 + cpz.clean$cpz_eq_total) %>% summary() # n.s.
 ```
+
+## Radar plots
+
+```{r}
+# install.packages("fmsb")
+library("fmsb")
+
+## Organize data
+cor.res.total <- data.frame(cor.mat$ci[,1:3],
+c(cor.mat$p[c(1:4),1], cor.mat$p[c(1:4), 2]), c(cor.mat$p.adj[c(1:4),1], cor.mat$p.adj[c(1:4), 2]))
+
+cor.res <- data.frame(cor.indiv.mat$ci[,1:3],
+                       c(cor.indiv.mat$p[c(1:19),1], cor.indiv.mat$p[c(1:19), 2]), c(cor.indiv.mat$p.adj[c(1:19),1], cor.indiv.mat$p.adj[c(1:19), 2]))
+
+colnames(cor.res) <- c("lowerR",
+                       "r",
+                       "upperR",
+                       "p.adj")
+
+cor.res$var1 <- c(rep("Behavioural scores", 19), rep("Brain scores", 19))
+
+cor.res$items <- c("Social engagement/\nwithdrawn", "Interpersonal communication/\nrelationship", "Interpersonal \nprosocial activity", "Recreation \nactivity", "Independence-\nperformance", "Independence-\ncompetence", "Interpersonal", "Instrumental role", "Intrapsychic\nfoundations", "Common objects\nand activities", "Negative\nsymptoms", "Positive\nsymptoms", "Anxiety/\ndepression", "Activation", "Hostility", "Affective flattening\nor blunting", "Alogia", "Avolition/\nApathy", "Asociality/\nAnhedonia")
+
+# cor.res$items <- c("Social engagement/withdrawn", "Interpersonal communication/relationship", "Interpersonal prosocial activity", "Recreation activity", "Independence-performance", "Independence-competence", "Interpersonal", "Instrumental role", "Intrapsychic foundations", "Common objects and activities", "Negative symptoms", "Positive symptoms", "Anxiety/depression", "Activation", "Hostility", "Affective flattening or blunting", "Alogia", "Avolition/Apathy", "Asociality/Anhedonia")
+
+cor.res$items_cat <- c(rep("bsfs", 6), rep("qls", 4), rep("bprs", 5), rep("sans", 4)) %>% factor(levels = c("bsfs", "qls", "bprs", "sans"))
+
+cor.res$items <- factor(cor.res$items, levels = unique(cor.res$items))
+
+cor.res$item_cat_col <- recode(cor.res$items_cat, !!!sympt.col)
+
+cor.res$item_col <- paste0("<span style=\"color: ", cor.res$item_cat_col, "\">", cor.res$items, "</span>")
+cor.res$item_col <- factor(cor.res$item_col, levels = unique(cor.res$item_col))
+
+
+cor.res$sig <- cor.res$p.adj < 0.05
+
+min <- -0.5
+max <- 0.5
+sig.neg <- -0.13
+sig.pos <- 0.13
+
+# cor.res4plot <- t(cor.res) %>% as.data.frame
+# 
+# ## Radar plot
+# radarchart(cor.res4plot[c("Max.", "Min.", "Behaviour_r", "Brain_r", "zero", "sig.neg", "sig.pos"),],
+#            axistype = 4,
+#            axislabcol = "gray20",
+#            centerzero = FALSE,
+#            vlcex = 0.5,
+#            caxislabels = c("-0.5", "-0.25", "0", "0.25", "0.5"),
+#            calcex = 0.5,
+#            cglty = 1,       # Grid line type
+#            cglcol = "gray", # Grid line color
+#            cglwd = 1,       # Line width of the grid
+#            pty = c(16, 16, 32, 32, 32), # point shape
+#            pcol = c("firebrick", "royalblue3", "gray20", "gray60", "gray60"),        # Color of the line
+#            plwd = c(2, 2, 10, 10, 10),        # 48 Width of the line
+#            plty = 1)
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+theme_set(theme_minimal())
+
+# dat <- tibble(
+#   regions = factor(rownames(cor.res)),
+#   type = rep(c("A", "B"), each = 10),
+#   y = c(rnorm(10), rnorm(10) + 2),
+#   numregions = as.numeric(regions)
+# )
+
+coord_straightpolar <- function(theta = 'x', start = 0, direction = 1, clip = "off") {
+  theta <- match.arg(theta, c("x", "y"))
+  r <- if (theta == "x") 
+    "y"
+  else "x"
+  ggproto(NULL, CoordPolar, theta = theta, r = r, start = start,
+          direction = sign(direction), clip = clip,
+          # This is the different bit
+          is_linear = function(){TRUE})
+}
+
+word_angle <-  c(80 - (360 /21 * c(0.5:9.5)), -103 + (360 /20 * c(9.5:0.5)))
+
+cor.res %>%
+  # arrange(items) %>%
+  ggplot(aes(x = items, y = r, color = var1, group = var1)) + 
+  geom_point(color = NA, size = 3) +
+  geom_line(aes(x = x, y = y, color = NA, group = NA), data = tibble(x = c(1:19), y = 0), color = "black") +
+  geom_line(aes(x = x, y = y, color = NA, group = NA), data = tibble(x = c(19, 1), y = 0), color = "black") +
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = 1:19, ymin = -0.13, ymax = 0.13),
+    fill = "grey40", alpha = 0.5) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1, 19), ymin = -0.13, ymax = 0.13),
+    fill = "grey40", alpha = 0.5) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1: 19), ymin = 0, ymax = 0),
+    fill = "grey20", alpha = 1) + 
+  geom_ribbon(
+    aes(x, ymin = ymin, ymax = ymax), inherit.aes = FALSE, 
+    data = tibble(x = c(1, 19), ymin = 0, ymax = 0),
+    fill = "grey20", alpha = 1) + 
+  geom_point() +
+  geom_polygon(fill = NA, lwd = 1)  +
+  scale_color_manual(values = c("Behavioural scores" = "darkolivegreen4", "Brain scores" = "darkorchid4")) +
+  labs(y = "", color = "Latent\nvariables")  +
+  ylim(-0.5, 0.4) +
+  annotate('text', x = 0, y = c(-0.5, -0.25, 0, 0.25, 0.5), label = c(-.5, -.25, 0, .25, .5), size = 9*5/14) +
+  theme(axis.text.x = element_text(size = 7, vjust = 0.5, face = "bold",
+                                   angle = word_angle,
+                                   color = cor.res$item_cat_col),
+        axis.title.x = element_blank(),
+        legend.position = "bottom",
+        panel.background = element_blank(),     # Remove panel background
+  panel.grid.major = element_line(colour = "grey70"),     # Remove major gridlines
+  panel.grid.minor = element_blank(),     # Remove minor gridlines
+  axis.line = element_blank(),            # Remove axis lines
+  axis.ticks = element_blank(),           # Remove axis ticks
+  axis.text = element_blank(),            # Remove axis tick labels
+  legend.background = element_blank()) +
+  coord_straightpolar() +
+  theme(plot.margin = margin(t = 1, r = 0, b = 1, l = 0, unit = "cm"))
+```
+
+
+```{r, include = FALSE}
+# save.image(file = "data/pls_grad_combat_res.rda")
+```
+
